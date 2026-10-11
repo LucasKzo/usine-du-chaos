@@ -1,6 +1,6 @@
 
--- L'USINE DU CHAOS - Version 0.2
--- Client : interface d'argent et boutique.
+-- L'USINE DU CHAOS - Version 0.3
+-- Client : compteur d'argent et boutique des machines.
 -- Chemin : src/StarterPlayer/StarterPlayerScripts/Main.client.lua
 
 local Players = game:GetService("Players")
@@ -10,8 +10,8 @@ local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 
 local remotes = ReplicatedStorage:WaitForChild("FactoryRemotes")
-local buyUpgradeRemote = remotes:WaitForChild("BuyUpgrade")
-local getShopDataRemote = remotes:WaitForChild("GetShopData")
+local buyRemote = remotes:WaitForChild("BuyUpgrade")
+local shopDataRemote = remotes:WaitForChild("GetShopData")
 
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "FactoryHUD"
@@ -22,7 +22,6 @@ local function addCorner(parent, radius)
     local corner = Instance.new("UICorner")
     corner.CornerRadius = UDim.new(0, radius)
     corner.Parent = parent
-    return corner
 end
 
 local function makeLabel(parent, name, text, size, position, textSize)
@@ -40,21 +39,20 @@ local function makeLabel(parent, name, text, size, position, textSize)
     return label
 end
 
-local function makeButton(parent, name, text, position)
+local function makeButton(parent, name, text, y, color)
     local button = Instance.new("TextButton")
     button.Name = name
     button.Size = UDim2.new(1, -24, 0, 54)
-    button.Position = position
-    button.BackgroundColor3 = Color3.fromRGB(45, 125, 85)
+    button.Position = UDim2.fromOffset(12, y)
+    button.BackgroundColor3 = color
     button.BorderSizePixel = 0
     button.Text = text
     button.TextColor3 = Color3.new(1, 1, 1)
-    button.TextSize = 15
+    button.TextSize = 14
     button.TextWrapped = true
     button.Font = Enum.Font.GothamBold
     button.AutoButtonColor = true
     button.Parent = parent
-
     addCorner(button, 8)
     return button
 end
@@ -65,7 +63,6 @@ cashPanel.Name = "CashPanel"
 cashPanel.Size = UDim2.fromOffset(260, 65)
 cashPanel.Position = UDim2.fromOffset(20, 20)
 cashPanel.BackgroundColor3 = Color3.fromRGB(28, 32, 42)
-cashPanel.BackgroundTransparency = 0.08
 cashPanel.BorderSizePixel = 0
 cashPanel.Parent = screenGui
 addCorner(cashPanel, 12)
@@ -76,12 +73,9 @@ cashStroke.Thickness = 2
 cashStroke.Parent = cashPanel
 
 local cashLabel = makeLabel(
-    cashPanel,
-    "CashLabel",
-    "Chargement...",
+    cashPanel, "CashLabel", "Chargement...",
     UDim2.new(1, -20, 1, 0),
-    UDim2.fromOffset(10, 0),
-    23
+    UDim2.fromOffset(10, 0), 23
 )
 cashLabel.Font = Enum.Font.GothamBold
 cashLabel.TextColor3 = Color3.fromRGB(110, 255, 150)
@@ -97,10 +91,10 @@ end
 updateCash()
 cash:GetPropertyChangedSignal("Value"):Connect(updateCash)
 
--- Fenêtre de la boutique.
+-- Boutique.
 local shop = Instance.new("Frame")
 shop.Name = "ShopPanel"
-shop.Size = UDim2.fromOffset(300, 335)
+shop.Size = UDim2.fromOffset(330, 440)
 shop.Position = UDim2.fromOffset(20, 98)
 shop.BackgroundColor3 = Color3.fromRGB(28, 32, 42)
 shop.BackgroundTransparency = 0.04
@@ -108,54 +102,17 @@ shop.BorderSizePixel = 0
 shop.Parent = screenGui
 addCorner(shop, 12)
 
-local shopStroke = Instance.new("UIStroke")
-shopStroke.Color = Color3.fromRGB(90, 110, 145)
-shopStroke.Thickness = 1.5
-shopStroke.Parent = shop
+local stroke = Instance.new("UIStroke")
+stroke.Color = Color3.fromRGB(90, 110, 145)
+stroke.Thickness = 1.5
+stroke.Parent = shop
 
 local title = makeLabel(
-    shop,
-    "Title",
-    "🏭 BOUTIQUE DE L'USINE",
-    UDim2.new(1, -20, 0, 42),
-    UDim2.fromOffset(10, 8),
-    18
+    shop, "Title", "🏭 BOUTIQUE DE L'USINE",
+    UDim2.new(1, -55, 0, 40),
+    UDim2.fromOffset(10, 5), 17
 )
 title.Font = Enum.Font.GothamBold
-
-local info = makeLabel(
-    shop,
-    "ProductionInfo",
-    "Chargement des améliorations...",
-    UDim2.new(1, -20, 0, 45),
-    UDim2.fromOffset(10, 48),
-    13
-)
-info.TextColor3 = Color3.fromRGB(195, 205, 220)
-
-local powerButton = makeButton(
-    shop,
-    "PowerUpgradeButton",
-    "Chargement...",
-    UDim2.fromOffset(12, 105)
-)
-
-local speedButton = makeButton(
-    shop,
-    "SpeedUpgradeButton",
-    "Chargement...",
-    UDim2.fromOffset(12, 167)
-)
-
-local status = makeLabel(
-    shop,
-    "Status",
-    "Les améliorations augmentent ta production.",
-    UDim2.new(1, -20, 0, 55),
-    UDim2.fromOffset(10, 231),
-    13
-)
-status.TextColor3 = Color3.fromRGB(255, 220, 130)
 
 local closeButton = Instance.new("TextButton")
 closeButton.Name = "CloseButton"
@@ -169,6 +126,41 @@ closeButton.TextSize = 15
 closeButton.Font = Enum.Font.GothamBold
 closeButton.Parent = shop
 addCorner(closeButton, 6)
+
+local info = makeLabel(
+    shop, "ProductionInfo", "Chargement des données...",
+    UDim2.new(1, -20, 0, 45),
+    UDim2.fromOffset(10, 43), 13
+)
+info.TextColor3 = Color3.fromRGB(195, 205, 220)
+
+local powerButton = makeButton(
+    shop, "PowerUpgradeButton", "Chargement...", 92,
+    Color3.fromRGB(45, 125, 85)
+)
+
+local speedButton = makeButton(
+    shop, "SpeedUpgradeButton", "Chargement...", 151,
+    Color3.fromRGB(45, 100, 165)
+)
+
+local transformerButton = makeButton(
+    shop, "TransformerButton", "Chargement...", 210,
+    Color3.fromRGB(35, 125, 80)
+)
+
+local multiplierButton = makeButton(
+    shop, "MultiplierButton", "Chargement...", 269,
+    Color3.fromRGB(155, 110, 30)
+)
+
+local status = makeLabel(
+    shop, "Status",
+    "Achète des machines pour augmenter la valeur de tes caisses.",
+    UDim2.new(1, -20, 0, 65),
+    UDim2.fromOffset(10, 332), 13
+)
+status.TextColor3 = Color3.fromRGB(255, 220, 130)
 
 local openButton = Instance.new("TextButton")
 openButton.Name = "OpenShopButton"
@@ -198,19 +190,19 @@ local currentData = nil
 local purchaseInProgress = false
 
 local function refreshShop()
-    local success, data = pcall(function()
-        return getShopDataRemote:InvokeServer()
+    local callSucceeded, data = pcall(function()
+        return shopDataRemote:InvokeServer()
     end)
 
-    if not success or not data then
-        status.Text = "Impossible de charger la boutique. Réessaie."
+    if not callSucceeded or not data then
+        status.Text = "Impossible de charger la boutique."
         return
     end
 
     currentData = data
 
     info.Text = string.format(
-        "Gain par caisse : %d $  |  Cadence : %.1f s",
+        "Caisse : %d $  |  Cadence : %.1f s",
         data.cashPerCrate,
         data.productionInterval
     )
@@ -220,12 +212,9 @@ local function refreshShop()
         powerButton.BackgroundColor3 = Color3.fromRGB(75, 80, 90)
     else
         powerButton.Text = string.format(
-            "⚙ Machine améliorée  |  Nv. %d → %d\nPrix : %d $",
-            data.powerLevel,
-            data.powerLevel + 1,
-            data.powerCost
+            "⚙ Machine améliorée | Nv. %d → %d\nPrix : %d $",
+            data.powerLevel, data.powerLevel + 1, data.powerCost
         )
-        powerButton.BackgroundColor3 = Color3.fromRGB(45, 125, 85)
     end
 
     if data.speedLevel >= data.maxLevel then
@@ -233,58 +222,72 @@ local function refreshShop()
         speedButton.BackgroundColor3 = Color3.fromRGB(75, 80, 90)
     else
         speedButton.Text = string.format(
-            "⚡ Convoyeur rapide  |  Nv. %d → %d\nPrix : %d $",
-            data.speedLevel,
-            data.speedLevel + 1,
-            data.speedCost
+            "⚡ Convoyeur rapide | Nv. %d → %d\nPrix : %d $",
+            data.speedLevel, data.speedLevel + 1, data.speedCost
         )
-        speedButton.BackgroundColor3 = Color3.fromRGB(45, 100, 165)
+    end
+
+    if data.transformerOwned then
+        transformerButton.Text = "✓ Transformateur\nACHETÉ"
+        transformerButton.BackgroundColor3 = Color3.fromRGB(65, 80, 75)
+    else
+        transformerButton.Text = string.format(
+            "🔧 Transformateur | Valeur ×2\nPrix : %d $",
+            data.transformerCost
+        )
+        transformerButton.BackgroundColor3 = Color3.fromRGB(35, 125, 80)
+    end
+
+    if data.multiplierOwned then
+        multiplierButton.Text = "✓ Multiplicateur\nACHETÉ"
+        multiplierButton.BackgroundColor3 = Color3.fromRGB(85, 75, 55)
+    else
+        multiplierButton.Text = string.format(
+            "⚡ Multiplicateur | Valeur ×2\nPrix : %d $",
+            data.multiplierCost
+        )
+        multiplierButton.BackgroundColor3 = Color3.fromRGB(155, 110, 30)
     end
 end
 
-local function purchaseUpgrade(upgradeName, button)
+local function purchase(itemName)
     if purchaseInProgress then
         return
     end
 
-    if not currentData then
-        refreshShop()
-        return
-    end
-
     purchaseInProgress = true
-    button.Active = false
     status.Text = "Achat en cours..."
 
-    local callSucceeded, bought, message, data = pcall(function()
-        return buyUpgradeRemote:InvokeServer(upgradeName)
+    local callSucceeded, bought, message = pcall(function()
+        return buyRemote:InvokeServer(itemName)
     end)
 
     if not callSucceeded then
         status.Text = "Erreur de connexion. Réessaie."
     else
         status.Text = message or "Réponse reçue."
-
-        if bought and data then
-            currentData = data
-            status.Text = "Achat réussi ! " .. message
-        end
     end
 
     refreshShop()
-
     purchaseInProgress = false
-    button.Active = true
 end
 
 powerButton.Activated:Connect(function()
-    purchaseUpgrade("Power", powerButton)
+    purchase("Power")
 end)
 
 speedButton.Activated:Connect(function()
-    purchaseUpgrade("Speed", speedButton)
+    purchase("Speed")
+end)
+
+transformerButton.Activated:Connect(function()
+    purchase("Transformer")
+end)
+
+multiplierButton.Activated:Connect(function()
+    purchase("Multiplier")
 end)
 
 refreshShop()
 
-print("[Usine] Interface de boutique chargée.")
+print("[Usine] Boutique v0.3 chargée.")

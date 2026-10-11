@@ -1,6 +1,6 @@
 
--- L'USINE DU CHAOS - Version 0.2
--- Serveur : parcelles, production, argent et boutique.
+-- L'USINE DU CHAOS - Version 0.3
+-- Serveur : parcelles, production, boutique et machines.
 -- Chemin : src/ServerScriptService/Main.server.lua
 
 local Players = game:GetService("Players")
@@ -16,7 +16,6 @@ local MAX_PLOTS = 8
 local PLOT_SPACING = 100
 local MAX_UPGRADE_LEVEL = 5
 
--- Configuration des améliorations.
 local UPGRADES = {
     Power = {
         displayName = "Machine améliorée",
@@ -30,10 +29,24 @@ local UPGRADES = {
     },
 }
 
--- Communications entre le client et le serveur.
--- Les objets sont créés ici pour que Rojo n'ait pas
--- besoin de fichiers supplémentaires pour les RemoteFunctions.
+local MACHINES = {
+    Transformer = {
+        displayName = "Transformateur",
+        cost = 250,
+        multiplier = 2,
+        positionX = 3,
+        color = Color3.fromRGB(50, 220, 125),
+    },
+    Multiplier = {
+        displayName = "Multiplicateur",
+        cost = 500,
+        multiplier = 2,
+        positionX = 15,
+        color = Color3.fromRGB(255, 195, 45),
+    },
+}
 
+-- Remotes créés par le serveur.
 local oldRemotes = ReplicatedStorage:FindFirstChild("FactoryRemotes")
 if oldRemotes then
     oldRemotes:Destroy()
@@ -43,13 +56,13 @@ local remotes = Instance.new("Folder")
 remotes.Name = "FactoryRemotes"
 remotes.Parent = ReplicatedStorage
 
-local buyUpgradeRemote = Instance.new("RemoteFunction")
-buyUpgradeRemote.Name = "BuyUpgrade"
-buyUpgradeRemote.Parent = remotes
+local buyRemote = Instance.new("RemoteFunction")
+buyRemote.Name = "BuyUpgrade"
+buyRemote.Parent = remotes
 
-local getShopDataRemote = Instance.new("RemoteFunction")
-getShopDataRemote.Name = "GetShopData"
-getShopDataRemote.Parent = remotes
+local shopDataRemote = Instance.new("RemoteFunction")
+shopDataRemote.Name = "GetShopData"
+shopDataRemote.Parent = remotes
 
 local plotsFolder = workspace:FindFirstChild("PlayerPlots")
 if plotsFolder then
@@ -65,60 +78,30 @@ local occupiedSlots = {}
 local upgradesByUserId = {}
 local lastPurchaseByUserId = {}
 
-local function getUpgradeCost(upgradeName, currentLevel)
-    local config = UPGRADES[upgradeName]
+local function getUpgradeCost(name, level)
+    local config = UPGRADES[name]
     if not config then
         return nil
     end
 
-    return config.baseCost + currentLevel * config.costStep
+    return config.baseCost + level * config.costStep
 end
 
 local function getCashPerCrate(player)
     local levels = upgradesByUserId[player.UserId]
-    local powerLevel = levels and levels.Power or 0
-
-    return BASE_CASH_PER_CRATE * (powerLevel + 1)
+    return BASE_CASH_PER_CRATE * (1 + (levels and levels.Power or 0))
 end
 
 local function getProductionInterval(player)
     local levels = upgradesByUserId[player.UserId]
     local speedLevel = levels and levels.Speed or 0
-
-    -- Chaque niveau accélère la cadence de 25 %.
     return BASE_PRODUCTION_INTERVAL / (1 + 0.25 * speedLevel)
 end
 
 local function getConveyorSpeed(player)
     local levels = upgradesByUserId[player.UserId]
     local speedLevel = levels and levels.Speed or 0
-
     return BASE_CONVEYOR_SPEED * (1 + 0.25 * speedLevel)
-end
-
-local function getShopData(player)
-    local levels = upgradesByUserId[player.UserId]
-    if not levels then
-        return nil
-    end
-
-    local stats = player:FindFirstChild("leaderstats")
-    local cash = stats and stats:FindFirstChild("Cash")
-
-    if not cash then
-        return nil
-    end
-
-    return {
-        cash = cash.Value,
-        powerLevel = levels.Power,
-        speedLevel = levels.Speed,
-        maxLevel = MAX_UPGRADE_LEVEL,
-        powerCost = getUpgradeCost("Power", levels.Power),
-        speedCost = getUpgradeCost("Speed", levels.Speed),
-        cashPerCrate = getCashPerCrate(player),
-        productionInterval = getProductionInterval(player),
-    }
 end
 
 local function createPart(parent, name, size, position, color, material)
@@ -133,6 +116,57 @@ local function createPart(parent, name, size, position, color, material)
     part.BottomSurface = Enum.SurfaceType.Smooth
     part.Parent = parent
     return part
+end
+
+local function createProcessingMachine(plot, origin, machineName)
+    local config = MACHINES[machineName]
+    if not config then
+        return nil
+    end
+
+    local machine = Instance.new("Model")
+    machine.Name = machineName
+    machine:SetAttribute("MachineType", machineName)
+    machine.Parent = plot
+
+    local x = config.positionX
+    local color = config.color
+
+    -- Deux piliers latéraux : la caisse passe entre eux.
+    createPart(
+        machine, "LeftSupport",
+        Vector3.new(2, 5, 2),
+        origin + Vector3.new(x, 5.5, 0.5),
+        color,
+        Enum.Material.Metal
+    )
+
+    createPart(
+        machine, "RightSupport",
+        Vector3.new(2, 5, 2),
+        origin + Vector3.new(x, 5.5, 9.5),
+        color,
+        Enum.Material.Metal
+    )
+
+    createPart(
+        machine, "MachineTop",
+        Vector3.new(10, 1.5, 2),
+        origin + Vector3.new(x, 8.5, 5),
+        color,
+        Enum.Material.Metal
+    )
+
+    local light = createPart(
+        machine, "ProcessingLight",
+        Vector3.new(3, 0.4, 3),
+        origin + Vector3.new(x, 9.5, 5),
+        color,
+        Enum.Material.Neon
+    )
+    light.CanCollide = false
+
+    return machine
 end
 
 local function createPlot(player, slot)
@@ -160,12 +194,12 @@ local function createPlot(player, slot)
         Enum.Material.Concrete
     )
 
-    local machine = Instance.new("Model")
-    machine.Name = "BasicProducer"
-    machine.Parent = model
+    local producer = Instance.new("Model")
+    producer.Name = "BasicProducer"
+    producer.Parent = model
 
     createPart(
-        machine, "MachineBase",
+        producer, "MachineBase",
         Vector3.new(12, 5, 10),
         origin + Vector3.new(-10, 4, 5),
         Color3.fromRGB(55, 105, 200),
@@ -173,7 +207,7 @@ local function createPlot(player, slot)
     )
 
     createPart(
-        machine, "MachineTop",
+        producer, "MachineTop",
         Vector3.new(8, 2, 8),
         origin + Vector3.new(-10, 7.5, 5),
         Color3.fromRGB(35, 45, 65),
@@ -181,7 +215,7 @@ local function createPlot(player, slot)
     )
 
     createPart(
-        machine, "WarningLight",
+        producer, "WarningLight",
         Vector3.new(2, 1, 2),
         origin + Vector3.new(-10, 9, 5),
         Color3.fromRGB(80, 255, 100),
@@ -238,13 +272,39 @@ local function createPlot(player, slot)
     return model, origin
 end
 
+local function tweenCrate(crate, destination, speed)
+    if not crate.Parent then
+        return false
+    end
+
+    local distance = (destination - crate.Position).Magnitude
+    local duration = distance / speed
+
+    local tween = TweenService:Create(
+        crate,
+        TweenInfo.new(duration, Enum.EasingStyle.Linear),
+        { Position = destination }
+    )
+
+    tween:Play()
+
+    local playbackState = tween.Completed:Wait()
+    return playbackState == Enum.PlaybackState.Completed
+        and crate.Parent ~= nil
+end
+
 local function createCrate(player, plot, origin)
-    if not plot or not plot.Parent or not player.Parent then
+    if not plot.Parent or not player.Parent then
         return
     end
 
+    -- Capture les propriétés au départ de la caisse.
     local cashValue = getCashPerCrate(player)
     local conveyorSpeed = getConveyorSpeed(player)
+    local levels = upgradesByUserId[player.UserId]
+
+    local hasTransformer = levels.Transformer
+    local hasMultiplier = levels.Multiplier
 
     local crate = createPart(
         plot, "ProductionCrate",
@@ -257,27 +317,63 @@ local function createCrate(player, plot, origin)
     crate.CanCollide = false
     crate:SetAttribute("CashValue", cashValue)
 
-    local destination = origin + Vector3.new(28, 5.5, 5)
-    local distance = (destination - crate.Position).Magnitude
-    local duration = distance / conveyorSpeed
+    task.spawn(function()
+        local value = cashValue
 
-    local tween = TweenService:Create(
-        crate,
-        TweenInfo.new(duration, Enum.EasingStyle.Linear),
-        { Position = destination }
-    )
+        -- Le transformateur double la valeur à son passage.
+        if hasTransformer then
+            local reached = tweenCrate(
+                crate,
+                origin + Vector3.new(MACHINES.Transformer.positionX, 5.5, 5),
+                conveyorSpeed
+            )
 
-    tween:Play()
+            if not reached then
+                if crate.Parent then
+                    crate:Destroy()
+                end
+                return
+            end
 
-    tween.Completed:Connect(function(playbackState)
-        if playbackState ~= Enum.PlaybackState.Completed then
+            value *= MACHINES.Transformer.multiplier
+            crate.Color = MACHINES.Transformer.color
+            crate:SetAttribute("CashValue", value)
+        end
+
+        -- Le multiplicateur double encore la valeur.
+        if hasMultiplier then
+            local reached = tweenCrate(
+                crate,
+                origin + Vector3.new(MACHINES.Multiplier.positionX, 5.5, 5),
+                conveyorSpeed
+            )
+
+            if not reached then
+                if crate.Parent then
+                    crate:Destroy()
+                end
+                return
+            end
+
+            value *= MACHINES.Multiplier.multiplier
+            crate.Color = MACHINES.Multiplier.color
+            crate:SetAttribute("CashValue", value)
+        end
+
+        local reached = tweenCrate(
+            crate,
+            origin + Vector3.new(28, 5.5, 5),
+            conveyorSpeed
+        )
+
+        if not reached then
             if crate.Parent then
                 crate:Destroy()
             end
             return
         end
 
-        -- L'argent est attribué uniquement par le serveur.
+        -- Seul le serveur peut verser l'argent.
         local ownerId = plot:GetAttribute("OwnerUserId")
         local owner = ownerId and Players:GetPlayerByUserId(ownerId)
 
@@ -286,12 +382,45 @@ local function createCrate(player, plot, origin)
             local cash = stats and stats:FindFirstChild("Cash")
 
             if cash and cash:IsA("IntValue") then
-                cash.Value += cashValue
+                cash.Value += value
             end
         end
 
         crate:Destroy()
     end)
+end
+
+local function getShopData(player)
+    local levels = upgradesByUserId[player.UserId]
+    if not levels then
+        return nil
+    end
+
+    local stats = player:FindFirstChild("leaderstats")
+    local cash = stats and stats:FindFirstChild("Cash")
+    if not cash then
+        return nil
+    end
+
+    return {
+        cash = cash.Value,
+
+        powerLevel = levels.Power,
+        speedLevel = levels.Speed,
+        maxLevel = MAX_UPGRADE_LEVEL,
+
+        powerCost = getUpgradeCost("Power", levels.Power),
+        speedCost = getUpgradeCost("Speed", levels.Speed),
+
+        cashPerCrate = getCashPerCrate(player),
+        productionInterval = getProductionInterval(player),
+
+        transformerOwned = levels.Transformer,
+        multiplierOwned = levels.Multiplier,
+
+        transformerCost = MACHINES.Transformer.cost,
+        multiplierCost = MACHINES.Multiplier.cost,
+    }
 end
 
 local function assignPlayer(player)
@@ -314,9 +443,12 @@ local function assignPlayer(player)
     end
 
     occupiedSlots[slot] = player.UserId
+
     upgradesByUserId[player.UserId] = {
         Power = 0,
         Speed = 0,
+        Transformer = false,
+        Multiplier = false,
     }
 
     local stats = Instance.new("Folder")
@@ -383,22 +515,23 @@ local function removePlayer(player)
     print("[Usine] Parcelle libérée pour " .. player.Name)
 end
 
-getShopDataRemote.OnServerInvoke = function(player)
+shopDataRemote.OnServerInvoke = function(player)
     return getShopData(player)
 end
 
-buyUpgradeRemote.OnServerInvoke = function(player, upgradeName)
-    -- Vérifier que le joueur est correctement initialisé.
+buyRemote.OnServerInvoke = function(player, itemName)
     if not plotsByUserId[player.UserId] then
         return false, "Ta parcelle n'est pas prête."
     end
 
-    -- N'accepter que les deux identifiants prévus.
-    if typeof(upgradeName) ~= "string" or not UPGRADES[upgradeName] then
-        return false, "Amélioration inconnue."
+    if typeof(itemName) ~= "string" then
+        return false, "Article invalide."
     end
 
-    -- Petite limite anti-spam des achats.
+    if not UPGRADES[itemName] and not MACHINES[itemName] then
+        return false, "Article inconnu."
+    end
+
     local now = os.clock()
     local lastPurchase = lastPurchaseByUserId[player.UserId] or 0
 
@@ -410,16 +543,9 @@ buyUpgradeRemote.OnServerInvoke = function(player, upgradeName)
 
     local levels = upgradesByUserId[player.UserId]
     if not levels then
-        return false, "Données du joueur indisponibles."
+        return false, "Données indisponibles."
     end
 
-    local currentLevel = levels[upgradeName]
-
-    if currentLevel >= MAX_UPGRADE_LEVEL then
-        return false, "Cette amélioration est au niveau maximum."
-    end
-
-    local cost = getUpgradeCost(upgradeName, currentLevel)
     local stats = player:FindFirstChild("leaderstats")
     local cash = stats and stats:FindFirstChild("Cash")
 
@@ -427,24 +553,43 @@ buyUpgradeRemote.OnServerInvoke = function(player, upgradeName)
         return false, "Argent indisponible."
     end
 
-    -- Le serveur choisit le prix et contrôle le solde.
+    local cost
+
+    if UPGRADES[itemName] then
+        local currentLevel = levels[itemName]
+
+        if currentLevel >= MAX_UPGRADE_LEVEL then
+            return false, "Niveau maximum atteint."
+        end
+
+        cost = getUpgradeCost(itemName, currentLevel)
+    else
+        if levels[itemName] then
+            return false, "Tu possèdes déjà cette machine."
+        end
+
+        cost = MACHINES[itemName].cost
+    end
+
     if cash.Value < cost then
         return false, "Pas assez d'argent ! Il te faut " .. cost .. " $."
     end
 
-    -- Transaction serveur : payer puis appliquer le niveau.
+    -- Achat effectué intégralement côté serveur.
     cash.Value -= cost
-    levels[upgradeName] = currentLevel + 1
 
-    local data = getShopData(player)
+    if UPGRADES[itemName] then
+        levels[itemName] += 1
+    else
+        levels[itemName] = true
 
-    print(
-        "[Usine] " .. player.Name
-        .. " a acheté " .. upgradeName
-        .. " niveau " .. levels[upgradeName]
-    )
+        local plotData = plotsByUserId[player.UserId]
+        createProcessingMachine(plotData.model, plotData.origin, itemName)
+    end
 
-    return true, "Amélioration achetée !", data
+    print("[Usine] " .. player.Name .. " a acheté " .. itemName)
+
+    return true, "Achat réussi !", getShopData(player)
 end
 
 Players.PlayerAdded:Connect(assignPlayer)
@@ -454,4 +599,4 @@ for _, player in Players:GetPlayers() do
     task.spawn(assignPlayer, player)
 end
 
-print("[Usine] Système de production et boutique chargé.")
+print("[Usine] Système de production v0.3 chargé.")
