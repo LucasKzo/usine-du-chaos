@@ -2,7 +2,10 @@
 -- L'USINE DU CHAOS - Version 0.3
 -- Serveur : parcelles, production, boutique et machines.
 -- Chemin : src/ServerScriptService/Main.server.lua
+local RunService = game:GetService("RunService")
 
+-- Remplace 0 par ton UserId Roblox.
+local DEV_USER_ID = 2418300030
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
@@ -63,6 +66,32 @@ buyRemote.Parent = remotes
 local shopDataRemote = Instance.new("RemoteFunction")
 shopDataRemote.Name = "GetShopData"
 shopDataRemote.Parent = remotes
+
+local devCashRemote = Instance.new("RemoteFunction")
+devCashRemote.Name = "DevGiveCash"
+devCashRemote.Parent = remotes
+
+devCashRemote.OnServerInvoke = function(player)
+    if not RunService:IsStudio() then
+        return false, "Disponible uniquement dans Studio."
+    end
+
+    if DEV_USER_ID == 0 or player.UserId ~= DEV_USER_ID then
+        return false, "Accès refusé."
+    end
+
+    local stats = player:FindFirstChild("leaderstats")
+    local cash = stats and stats:FindFirstChild("Cash")
+
+    if not cash or not cash:IsA("IntValue") then
+        return false, "Statistique Cash introuvable."
+    end
+
+    cash.Value += 100000
+    print("[DEV] +100000 $ pour " .. player.Name)
+
+    return true, "100 000 $ ajoutés !"
+end
 
 local plotsFolder = workspace:FindFirstChild("PlayerPlots")
 if plotsFolder then
@@ -598,5 +627,68 @@ Players.PlayerRemoving:Connect(removePlayer)
 for _, player in Players:GetPlayers() do
     task.spawn(assignPlayer, player)
 end
+
+
+
+-- COMMANDES DE TEST : disponibles uniquement dans Studio
+-- et uniquement pour le développeur autorisé.
+
+
+-- COMMANDES DE TEST - Studio uniquement
+local RunService = game:GetService("RunService")
+
+local DEV_USER_ID = 2418300030 -- Remplace par TON UserId Roblox
+
+local function setupDevCommands(player)
+    player.Chatted:Connect(function(message)
+        print("[DEV] Message reçu :", player.Name, message)
+
+        if not RunService:IsStudio() then
+            return
+        end
+
+        if player.UserId ~= DEV_USER_ID then
+            warn("[DEV] UserId non autorisé :", player.UserId)
+            return
+        end
+
+        local amountText = message:match("^!cash%s+(%d+)$")
+
+        if amountText then
+            local amount = tonumber(amountText)
+
+            if not amount or amount < 1 or amount > 1000000 then
+                return
+            end
+
+            local stats = player:FindFirstChild("leaderstats")
+            local cash = stats and stats:FindFirstChild("Cash")
+
+            if cash and cash:IsA("IntValue") then
+                cash.Value += amount
+                print("[DEV] Argent ajouté :", amount)
+            else
+                warn("[DEV] Statistique Cash introuvable")
+            end
+
+        elseif message == "!resetcash" then
+            local stats = player:FindFirstChild("leaderstats")
+            local cash = stats and stats:FindFirstChild("Cash")
+
+            if cash and cash:IsA("IntValue") then
+                cash.Value = STARTING_CASH
+                print("[DEV] Argent réinitialisé")
+            end
+        end
+    end)
+end
+
+Players.PlayerAdded:Connect(setupDevCommands)
+
+-- Utile si le script démarre alors que le joueur est déjà présent.
+for _, player in Players:GetPlayers() do
+    setupDevCommands(player)
+end
+
 
 print("[Usine] Système de production v0.3 chargé.")

@@ -291,3 +291,44 @@ end)
 refreshShop()
 
 print("[Usine] Boutique v0.3 chargée.")
+
+
+
+
+
+
+-- Bouton développeur pour les tests dans Studio
+local devCashRemote = remotes:WaitForChild("DevGiveCash")
+
+local devButton = Instance.new("TextButton")
+devButton.Name = "DevCashButton"
+devButton.Size = UDim2.fromOffset(190, 45)
+devButton.Position = UDim2.new(1, -210, 1, -65)
+devButton.BackgroundColor3 = Color3.fromRGB(150, 90, 35)
+devButton.TextColor3 = Color3.new(1, 1, 1)
+devButton.TextSize = 15
+devButton.Font = Enum.Font.GothamBold
+devButton.Text = "+100 000 $ [DEV]"
+devButton.Parent = screenGui
+
+local devCorner = Instance.new("UICorner")
+devCorner.CornerRadius = UDim.new(0, 8)
+devCorner.Parent = devButton
+
+devButton.Activated:Connect(function()
+    devButton.Text = "Chargement..."
+
+    local success, allowed, message = pcall(function()
+        return devCashRemote:InvokeServer()
+    end)
+
+    if success then
+        devButton.Text = message or "Réponse reçue"
+    else
+        devButton.Text = "Erreur serveur"
+        warn("[DEV] Appel impossible :", allowed)
+    end
+
+    task.wait(2)
+    devButton.Text = "+100 000 $ [DEV]"
+end)
