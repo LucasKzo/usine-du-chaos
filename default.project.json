@@ -1,20 +1,24 @@
 {
-  "name": "UsineDuChaos",
+  "name": "usine-du-chaos",
   "tree": {
     "$className": "DataModel",
+
     "ReplicatedStorage": {
       "$className": "ReplicatedStorage",
       "Shared": {
-        "$path": "src/ReplicatedStorage"
+        "$path": "src/ReplicatedStorage/Shared"
       }
     },
+
     "ServerScriptService": {
       "$className": "ServerScriptService",
       "$path": "src/ServerScriptService"
     },
+
     "StarterPlayer": {
       "$className": "StarterPlayer",
       "StarterPlayerScripts": {
+        "$className": "StarterPlayerScripts",
         "$path": "src/StarterPlayer/StarterPlayerScripts"
       }
     }
