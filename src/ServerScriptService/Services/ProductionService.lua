@@ -30,6 +30,13 @@ local function countBuffer(buf: { [string]: number }): number
 	return total
 end
 
+local function getFirstItem(buf: { [string]: number }): string
+	for resId, qty in pairs(buf) do
+		if qty > 0 then return resId end
+	end
+	return ""
+end
+
 local function updateBillboard(plot, machineData, text: string, color: Color3)
 	local model = plot.MachinesFolder:FindFirstChild(machineData.Id)
 	if not model or not model.PrimaryPart then return end
@@ -94,7 +101,7 @@ function ProductionService.SimulatePlot(player: Player, plot: any, data: any, dt
 	local prestigeMult = PlotAndPrestigeConfig.GetPrestigeMultiplier(data.Prestige or 0)
 
 	-- =========================================================================
-	-- ÉTAPE 1 : Vente au Centre de Livraison (vend ce qui est arrivé au tick précédent)
+	-- ÉTAPE 1 : Vente au Centre de Livraison
 	-- =========================================================================
 	for _, m in ipairs(data.Machines) do
 		if m.Type == "DeliveryCenter" then
@@ -135,9 +142,10 @@ function ProductionService.SimulatePlot(player: Player, plot: any, data: any, dt
 	end
 
 	-- =========================================================================
-	-- ÉTAPE 2 : Transfert d'UNE SEULE CASE pour les objets déjà prêts en OutputBuffer
+	-- ÉTAPE 2 : Transfert d'UNE SEULE CASE (1 seul item max par case de tapis)
 	-- =========================================================================
 	local transfersToExecute = {}
+	local reservedSpaceOnTarget = {}
 
 	for _, m in ipairs(data.Machines) do
 		local cfg = MachineConfig.Get(m.Type)
@@ -149,11 +157,8 @@ function ProductionService.SimulatePlot(player: Player, plot: any, data: any, dt
 			baseRot = (baseRot + 180) % 360
 		end
 
-		local transferRate = (cfg.TransferRate or 1) * m.Level
-		local transferred = 0
-
 		for resId, qty in pairs(m.OutputBuffer) do
-			if qty > 0 and transferred < transferRate then
+			if qty > 0 then
 				local outRot = baseRot
 				if cfg.TurnType == "Left" then
 					outRot = (baseRot - 90) % 360
@@ -171,28 +176,33 @@ function ProductionService.SimulatePlot(player: Player, plot: any, data: any, dt
 
 				if targetMachine then
 					local targetCfg = MachineConfig.Get(targetMachine.Type)
-					local targetMaxIn = targetCfg and (targetCfg.InputCapacity * targetMachine.Level) or 0
-					local spaceLeft = targetMaxIn - countBuffer(targetMachine.InputBuffer)
+					if targetCfg then
+						-- Un tapis ne peut stocker qu'1 seule ressource à la fois (évite d'empiler 15 minerais dans un tapis !)
+						local targetMaxIn = targetCfg.IsBelt and 1 or math.min(targetCfg.InputCapacity, 3)
+						local currentItemsOnTarget = countBuffer(targetMachine.InputBuffer)
+							+ (targetCfg.IsBelt and countBuffer(targetMachine.OutputBuffer) or 0)
+							+ (reservedSpaceOnTarget[targetMachine.Id] or 0)
 
-					if spaceLeft > 0 then
-						local moveAmt = math.min(qty, transferRate - transferred, spaceLeft)
-						m.OutputBuffer[resId] = qty - moveAmt
-						if m.OutputBuffer[resId] <= 0 then m.OutputBuffer[resId] = nil end
-						transferred = transferred + moveAmt
+						local spaceLeft = targetMaxIn - currentItemsOnTarget
+						if spaceLeft > 0 then
+							m.OutputBuffer[resId] = qty - 1
+							if m.OutputBuffer[resId] <= 0 then m.OutputBuffer[resId] = nil end
+							reservedSpaceOnTarget[targetMachine.Id] = (reservedSpaceOnTarget[targetMachine.Id] or 0) + 1
 
-						table.insert(transfersToExecute, {
-							FromMachine = m,
-							ToMachine = targetMachine,
-							ResId = resId,
-							Amount = moveAmt,
-						})
+							table.insert(transfersToExecute, {
+								FromMachine = m,
+								ToMachine = targetMachine,
+								ResId = resId,
+								Amount = 1,
+							})
+							break -- 1 transfert par tick
+						end
 					end
 				end
 			end
 		end
 	end
 
-	-- Application simultanée des transferts (impossible qu'un lingot saute 2 ou 3 tapis d'un coup)
 	for _, tr in ipairs(transfersToExecute) do
 		tr.ToMachine.InputBuffer[tr.ResId] = (tr.ToMachine.InputBuffer[tr.ResId] or 0) + tr.Amount
 		local model = plot.MachinesFolder:FindFirstChild(tr.FromMachine.Id)
@@ -204,12 +214,12 @@ function ProductionService.SimulatePlot(player: Player, plot: any, data: any, dt
 	end
 
 	-- =========================================================================
-	-- ÉTAPE 3 : Les tapis préparent les ressources reçues pour le PROCHAIN tick
+	-- ÉTAPE 3 : Avancée interne des tapis et mise à jour de l'objet 3D arrêté (HeldItem)
 	-- =========================================================================
 	for _, m in ipairs(data.Machines) do
 		local cfg = MachineConfig.Get(m.Type)
 		if cfg and (cfg.IsBelt or m.Type == "Storage") then
-			local maxCap = cfg.OutputCapacity * m.Level
+			local maxCap = cfg.IsBelt and 1 or (cfg.OutputCapacity * m.Level)
 			for resId, qty in pairs(m.InputBuffer) do
 				if qty > 0 and countBuffer(m.OutputBuffer) < maxCap then
 					local space = maxCap - countBuffer(m.OutputBuffer)
@@ -219,11 +229,20 @@ function ProductionService.SimulatePlot(player: Player, plot: any, data: any, dt
 					if m.InputBuffer[resId] <= 0 then m.InputBuffer[resId] = nil end
 				end
 			end
+
+			if cfg.IsBelt then
+				local model = plot.MachinesFolder:FindFirstChild(m.Id)
+				if model then
+					local held = getFirstItem(m.OutputBuffer)
+					if held == "" then held = getFirstItem(m.InputBuffer) end
+					model:SetAttribute("HeldItem", held)
+				end
+			end
 		end
 	end
 
 	-- =========================================================================
-	-- ÉTAPE 4 : Fabrication des Mines et des Fours (sortira au tick suivant)
+	-- ÉTAPE 4 : Fabrication des Mines et des Fours
 	-- =========================================================================
 	for _, m in ipairs(data.Machines) do
 		local cfg = MachineConfig.Get(m.Type)
@@ -257,7 +276,7 @@ function ProductionService.SimulatePlot(player: Player, plot: any, data: any, dt
 		end
 
 		if cfg.Recipes then
-			local maxOut = cfg.OutputCapacity * m.Level
+			local maxOut = math.min(cfg.OutputCapacity, 2)
 			if countBuffer(m.OutputBuffer) >= maxOut then
 				updateBillboard(plot, m, "Sortie pleine", Color3.fromRGB(255, 175, 60))
 			else

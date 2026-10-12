@@ -18,11 +18,35 @@ visualsFolder.Name = "ClientVisualResources"
 visualsFolder.Parent = Workspace
 
 local observedMachines = {}
-local waitingVisualOnTile = {} -- Garde le modèle 3D sur un tapis pour éviter qu'il clignote entre 2 cases
+local waitingVisualOnTile = {} -- Garde le modèle 3D posé sur le tapis tant que le tapis contient la ressource
+
+local function clearTileVisual(tileModel: Model)
+	local existing = waitingVisualOnTile[tileModel]
+	if existing then
+		if existing.Model and existing.Model.Parent then
+			existing.Model:Destroy()
+		end
+		waitingVisualOnTile[tileModel] = nil
+	end
+end
 
 local function hookMachineVisuals(machineModel: Model)
 	if observedMachines[machineModel] then return end
 	observedMachines[machineModel] = true
+
+	-- Si le tapis devient vide (ou est supprimé), on nettoie le visuel posé dessus
+	machineModel:GetAttributeChangedSignal("HeldItem"):Connect(function()
+		local held = machineModel:GetAttribute("HeldItem")
+		if not held or held == "" then
+			clearTileVisual(machineModel)
+		end
+	end)
+
+	machineModel.AncestryChanged:Connect(function(_, parent)
+		if not parent then
+			clearTileVisual(machineModel)
+		end
+	end)
 
 	machineModel:GetAttributeChangedSignal("TransferSeq"):Connect(function()
 		local resId = machineModel:GetAttribute("LastMovedItem")
@@ -33,17 +57,14 @@ local function hookMachineVisuals(machineModel: Model)
 		local targetModel = machinesFolder and machinesFolder:FindFirstChild(targetId)
 		if not machineModel.PrimaryPart or not targetModel or not targetModel.PrimaryPart then return end
 
-		-- Réutilise le modèle 3D déjà présent sur ce tapis s'il vient d'arriver (zéro clignotement !)
+		-- Réutilise le modèle 3D qui attendait sur le tapis (zéro clignotement, même après un bouchon !)
 		local itemVisual = nil
 		local existing = waitingVisualOnTile[machineModel]
 		if existing and existing.ResId == resId and existing.Model and existing.Model.Parent then
 			itemVisual = existing.Model
 			waitingVisualOnTile[machineModel] = nil
 		else
-			if existing and existing.Model then
-				existing.Model:Destroy()
-				waitingVisualOnTile[machineModel] = nil
-			end
+			clearTileVisual(machineModel)
 			itemVisual = ModelFactory.CreateResourceModel(resId)
 			itemVisual.Parent = visualsFolder
 		end
@@ -75,21 +96,11 @@ local function hookMachineVisuals(machineModel: Model)
 
 			local targetType = targetModel:GetAttribute("MachineType")
 			local targetCfg = targetType and MachineConfig.Get(targetType)
-			-- Si la case cible est un tapis, on garde l'objet 3D prêt pour le tapis suivant sans le détruire !
+			-- Si la cible est un tapis, le minerai RESTE visible dessus tant qu'il n'est pas entré dans le four !
 			if targetCfg and targetCfg.IsBelt then
-				local oldTarget = waitingVisualOnTile[targetModel]
-				if oldTarget and oldTarget.Model then
-					oldTarget.Model:Destroy()
-				end
+				clearTileVisual(targetModel)
 				waitingVisualOnTile[targetModel] = { ResId = resId, Model = itemVisual }
-				task.delay(0.25, function()
-					if waitingVisualOnTile[targetModel] and waitingVisualOnTile[targetModel].Model == itemVisual then
-						waitingVisualOnTile[targetModel] = nil
-						if itemVisual.Parent then itemVisual:Destroy() end
-					end
-				end)
 			else
-				-- Si c'est un Four ou un Centre de Livraison, le minerai/lingot entre dans la machine et disparaît
 				if itemVisual.Parent then
 					itemVisual:Destroy()
 				end
