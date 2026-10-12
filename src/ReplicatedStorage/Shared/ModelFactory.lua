@@ -1,9 +1,15 @@
 -- ReplicatedStorage/Shared/ModelFactory.lua
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
 local PlotAndPrestigeConfig = require(script.Parent.Config.PlotAndPrestigeConfig)
 local MachineConfig = require(script.Parent.Config.MachineConfig)
 local ResourceConfig = require(script.Parent.Config.ResourceConfig)
 
 local ModelFactory = {}
+
+local DARK_METAL = Color3.fromRGB(32, 36, 44)
+local MID_METAL = Color3.fromRGB(68, 74, 88)
+local LIGHT_STEEL = Color3.fromRGB(165, 172, 185)
 
 local function addPart(parent: Instance, name: string, size: Vector3, cf: CFrame, color: Color3, mat: Enum.Material, shape: Enum.PartType?): Part
 	local p = Instance.new("Part")
@@ -22,8 +28,116 @@ local function addPart(parent: Instance, name: string, size: Vector3, cf: CFrame
 	return p
 end
 
--- Crée le modèle 3D d'une ressource (Minerai, Lingot, Bloc, Diamant, Cellule, Cœur)
+-- Applique automatiquement les couleurs et matériaux Roblox aux parties du FBX Blender
+local function applyCustomMaterials(instance: Instance, cfg: any)
+	for _, part in ipairs(instance:GetDescendants()) do
+		if part:IsA("BasePart") then
+			local n = string.lower(part.Name)
+			if string.find(n, "dark") then
+				part.Color = DARK_METAL
+				part.Material = Enum.Material.Metal
+			elseif string.find(n, "main") then
+				part.Color = cfg.Color
+				part.Material = Enum.Material.Metal
+			elseif string.find(n, "neon") or string.find(n, "glow") then
+				part.Color = cfg.Color
+				part.Material = Enum.Material.Neon
+			elseif string.find(n, "silver") or string.find(n, "drill") or string.find(n, "rotor") then
+				part.Color = LIGHT_STEEL
+				part.Material = Enum.Material.Metal
+			elseif string.find(n, "piston") then
+				part.Color = Color3.fromRGB(245, 195, 35)
+				part.Material = Enum.Material.Metal
+			else
+				part.Color = cfg.Color
+				part.Material = Enum.Material.Metal
+			end
+		end
+	end
+end
+
+-- Prépare, met à l'échelle (case 6x6) et centre au sol un modèle 3D importé (.fbx)
+local function prepareCustomModel(template: Instance, targetWidth: number, isPreview: boolean?, cfg: any?): Model
+	local wrapper = Instance.new("Model")
+	wrapper.Name = template.Name
+
+	local base = Instance.new("Part")
+	base.Name = "PrimaryPart"
+	base.Size = Vector3.new(targetWidth - 0.3, 0.3, targetWidth - 0.3)
+	base.CFrame = CFrame.new(0, 0.15, 0)
+	base.Anchored = true
+	base.CanCollide = not isPreview
+	base.Color = DARK_METAL
+	base.Material = Enum.Material.Metal
+	base.TopSurface = Enum.SurfaceType.Smooth
+	base.BottomSurface = Enum.SurfaceType.Smooth
+	base.Parent = wrapper
+	wrapper.PrimaryPart = base
+
+	local clone = template:Clone()
+	for _, desc in ipairs(clone:GetDescendants()) do
+		if desc:IsA("LuaSourceContainer") or desc:IsA("WeldConstraint") or desc:IsA("JointInstance") then
+			desc:Destroy()
+		elseif desc:IsA("BasePart") then
+			desc.Anchored = true
+			desc.CanCollide = not isPreview
+			desc.CanQuery = false
+		end
+	end
+
+	if cfg then
+		applyCustomMaterials(clone, cfg)
+	end
+
+	if clone:IsA("Model") then
+		local boxCF, boxSize = clone:GetBoundingBox()
+		local maxHoriz = math.max(boxSize.X, boxSize.Z, 0.01)
+		local scaleFactor = (targetWidth - 0.6) / maxHoriz
+		pcall(function()
+			clone:ScaleTo(clone:GetScale() * scaleFactor)
+		end)
+
+		boxCF, boxSize = clone:GetBoundingBox()
+		local parts = {}
+		for _, part in ipairs(clone:GetDescendants()) do
+			if part:IsA("BasePart") then
+				table.insert(parts, part)
+			end
+		end
+
+		for _, part in ipairs(parts) do
+			local offset = part.Position - boxCF.Position
+			local newPos = Vector3.new(offset.X, offset.Y + (boxSize.Y / 2) + 0.3, offset.Z)
+			part.CFrame = CFrame.new(newPos) * part.CFrame.Rotation
+			part.Parent = wrapper
+		end
+		clone:Destroy()
+	elseif clone:IsA("BasePart") then
+		clone.Anchored = true
+		clone.CanCollide = not isPreview
+		clone.CanQuery = false
+		if cfg then
+			clone.Color = cfg.Color
+			clone.Material = Enum.Material.Metal
+		end
+		local maxHoriz = math.max(clone.Size.X, clone.Size.Z, 0.01)
+		clone.Size = clone.Size * ((targetWidth - 0.6) / maxHoriz)
+		clone.CFrame = CFrame.new(0, (clone.Size.Y / 2) + 0.3, 0) * clone.CFrame.Rotation
+		clone.Parent = wrapper
+	end
+
+	return wrapper
+end
+
+-- ==================== MODÈLES 3D DES 20 RESSOURCES ====================
 function ModelFactory.CreateResourceModel(resourceId: string): Model
+	local customFolder = ReplicatedStorage:FindFirstChild("CustomAssets")
+	local customRes = (customFolder and customFolder:FindFirstChild("Resources") and customFolder.Resources:FindFirstChild(resourceId))
+		or Workspace:FindFirstChild(resourceId)
+	if customRes then
+		return prepareCustomModel(customRes, 1.8, true, ResourceConfig.Items[resourceId])
+	end
+
 	local info = ResourceConfig.Items[resourceId] or ResourceConfig.Items.IronOre
 	local model = Instance.new("Model")
 	model.Name = "Res_" .. resourceId
@@ -40,255 +154,190 @@ function ModelFactory.CreateResourceModel(resourceId: string): Model
 	root.Parent = model
 	model.PrimaryPart = root
 
+	local rc = root.CFrame
+
 	if info.Shape == "Ore" then
-		root.Size = Vector3.new(1.3, 1.1, 1.3)
-		addPart(model, "Chunk1", Vector3.new(0.9, 0.9, 0.9), root.CFrame * CFrame.new(0.3, 0.2, 0.2) * CFrame.Angles(0.5, 0.4, 0.2), info.Color, root.Material)
-		addPart(model, "Chunk2", Vector3.new(0.8, 1.0, 0.8), root.CFrame * CFrame.new(-0.3, 0.1, -0.2) * CFrame.Angles(-0.3, 0.8, 0.4), info.Color, root.Material)
+		root.Size = Vector3.new(1.15, 0.9, 1.15)
+		root.Color = Color3.fromRGB(95, 90, 85)
+		root.Material = Enum.Material.Rock
+		addPart(model, "Vein1", Vector3.new(0.75, 0.75, 0.75), rc * CFrame.new(0.22, 0.2, 0.18) * CFrame.Angles(0.5, 0.4, 0.2), info.Color, Enum.Material.Metal)
+		addPart(model, "Vein2", Vector3.new(0.65, 0.7, 0.65), rc * CFrame.new(-0.25, 0.15, -0.2) * CFrame.Angles(-0.4, 0.7, 0.3), info.Color, Enum.Material.Neon)
 	elseif info.Shape == "Ingot" then
-		root.Size = Vector3.new(1.1, 0.55, 1.8)
-		root.Reflectance = 0.25
-		addPart(model, "TopBevel", Vector3.new(0.85, 0.2, 1.55), root.CFrame * CFrame.new(0, 0.3, 0), info.Color, root.Material)
+		root.Size = Vector3.new(0.95, 0.4, 1.5)
+		root.Reflectance = 0.3
+		addPart(model, "Bevel", Vector3.new(0.75, 0.2, 1.3), rc * CFrame.new(0, 0.25, 0), info.Color, root.Material)
 	elseif info.Shape == "Block" then
-		root.Size = Vector3.new(1.6, 1.6, 1.6)
-		root.Reflectance = 0.15
-		addPart(model, "Band", Vector3.new(1.68, 0.35, 1.68), root.CFrame, Color3.fromRGB(45, 50, 60), Enum.Material.Metal)
+		root.Size = Vector3.new(1.35, 1.35, 1.35)
+		root.Reflectance = 0.2
+		addPart(model, "FrameH", Vector3.new(1.42, 0.28, 1.42), rc, DARK_METAL, Enum.Material.Metal)
+		addPart(model, "CoreDot", Vector3.new(0.6, 1.4, 0.6), rc, info.Color, Enum.Material.Neon)
 	elseif info.Shape == "Gem" then
-		root.Size = Vector3.new(1.2, 1.5, 1.2)
+		root.Size = Vector3.new(0.95, 1.25, 0.95)
 		root.Transparency = 0.15
-		addPart(model, "Facet", Vector3.new(1.2, 1.2, 1.2), root.CFrame * CFrame.Angles(math.rad(45), math.rad(45), 0), info.Color, Enum.Material.Neon)
+		addPart(model, "Crystal1", Vector3.new(0.95, 0.95, 0.95), rc * CFrame.Angles(math.rad(45), math.rad(45), 0), info.Color, Enum.Material.Neon)
 	elseif info.Shape == "Canister" then
 		root.Shape = Enum.PartType.Cylinder
-		root.Size = Vector3.new(1.7, 1.1, 1.1)
-		addPart(model, "Cap1", Vector3.new(0.3, 1.2, 1.2), root.CFrame * CFrame.new(0.75, 0, 0), Color3.fromRGB(50, 55, 65), Enum.Material.Metal, Enum.PartType.Cylinder)
-		addPart(model, "Cap2", Vector3.new(0.3, 1.2, 1.2), root.CFrame * CFrame.new(-0.75, 0, 0), Color3.fromRGB(50, 55, 65), Enum.Material.Metal, Enum.PartType.Cylinder)
+		root.Size = Vector3.new(1.4, 0.95, 0.95)
 	elseif info.Shape == "Core" then
 		root.Shape = Enum.PartType.Ball
-		root.Size = Vector3.new(1.5, 1.5, 1.5)
-		addPart(model, "Ring", Vector3.new(0.2, 2.1, 2.1), root.CFrame * CFrame.Angles(0, 0, math.rad(45)), Color3.fromRGB(255, 240, 150), Enum.Material.Neon, Enum.PartType.Cylinder)
-	end
-
-	if info.Glow then
-		local light = Instance.new("PointLight")
-		light.Color = info.Color
-		light.Range = 7
-		light.Brightness = 1.5
-		light.Parent = root
+		root.Size = Vector3.new(1.25, 1.25, 1.25)
 	end
 
 	return model
 end
 
--- Crée le modèle 3D détaillé d'une machine ou d'un tapis
+-- ==================== MODÈLES 3D DES MACHINES & TAPIS ====================
 function ModelFactory.CreateMachineModel(machineType: string, isPreview: boolean?): Model
 	local cfg = MachineConfig.Get(machineType) or MachineConfig.Get("IronExtractor")
-
-	local model = Instance.new("Model")
-	model.Name = machineType
-
 	local cellSize = PlotAndPrestigeConfig.CellSize
 	local isBelt = cfg.IsBelt == true
-	local baseHeight = isBelt and 0.6 or 0.8
 
-	-- Socle de base (sert de PrimaryPart pour l'alignement sur la grille 6x6)
-	local base = Instance.new("Part")
-	base.Name = "PrimaryPart"
-	base.Size = Vector3.new(cellSize - 0.4, baseHeight, cellSize - 0.4)
-	base.Anchored = true
-	base.CanCollide = not isPreview
-	base.Color = isBelt and Color3.fromRGB(35, 38, 45) or Color3.fromRGB(45, 50, 60)
-	base.Material = Enum.Material.Metal
-	base.TopSurface = Enum.SurfaceType.Smooth
-	base.BottomSurface = Enum.SurfaceType.Smooth
-	base.Parent = model
-	model.PrimaryPart = base
+	local customFolder = ReplicatedStorage:FindFirstChild("CustomAssets")
+	local customTemplate = (customFolder and customFolder:FindFirstChild("Machines") and customFolder.Machines:FindFirstChild(machineType))
+		or Workspace:FindFirstChild(machineType)
 
-	local bc = base.CFrame
+	local model: Model
+	local base: Part
+	local baseHeight = 0.3
 
-	-- ==================== 1. TAPIS ROULANTS, VIRAGES 90° & AIGUILLAGES ====================
-	if isBelt then
-		-- Rails latéraux colorés selon la gamme du tapis
-		addPart(model, "RailL", Vector3.new(0.45, 0.45, cellSize - 0.4), bc * CFrame.new(-(cellSize / 2 - 0.45), 0.35, 0), cfg.Color, Enum.Material.Metal)
-		addPart(model, "RailR", Vector3.new(0.45, 0.45, cellSize - 0.4), bc * CFrame.new((cellSize / 2 - 0.45), 0.35, 0), cfg.Color, Enum.Material.Metal)
-
-		-- Rouleaux métalliques sur le tapis
-		for offsetZ = -1.8, 1.8, 1.8 do
-			addPart(model, "Roller", Vector3.new(cellSize - 1.3, 0.35, 0.35), bc * CFrame.new(0, 0.22, offsetZ) * CFrame.Angles(0, 0, math.rad(90)), Color3.fromRGB(80, 85, 95), Enum.Material.DiamondPlate, Enum.PartType.Cylinder)
-		end
-
-		if machineType == "Merger" then
-			-- Arche de fusion 3-en-1
-			addPart(model, "MergerArch", Vector3.new(cellSize - 0.8, 1.8, 1.4), bc * CFrame.new(0, 1.1, 0), cfg.Color, Enum.Material.Metal)
-		elseif machineType == "Sorter" then
-			-- Portique scanner avec laser de tri
-			addPart(model, "ScannerTop", Vector3.new(cellSize - 0.6, 0.4, 1.2), bc * CFrame.new(0, 2.2, 0), cfg.Color, Enum.Material.Metal)
-			addPart(model, "ScannerBeam", Vector3.new(cellSize - 1.2, 0.15, 0.15), bc * CFrame.new(0, 1.4, 0), Color3.fromRGB(0, 255, 255), Enum.Material.Neon)
-		end
-
-	-- ==================== 2. CENTRE DE LIVRAISON & STOCKAGE ====================
-	elseif machineType == "DeliveryCenter" then
-		addPart(model, "PadBorder", Vector3.new(cellSize - 0.8, 0.4, cellSize - 0.8), bc * CFrame.new(0, 0.5, 0), Color3.fromRGB(245, 190, 30), Enum.Material.DiamondPlate)
-		local vortex = addPart(model, "CollectionZone", Vector3.new(cellSize - 1.8, 0.5, cellSize - 1.8), bc * CFrame.new(0, 0.65, 0), Color3.fromRGB(45, 235, 115), Enum.Material.Neon)
-		addPart(model, "Antenna", Vector3.new(0.5, 3.8, 0.5), bc * CFrame.new(2.0, 2.1, 2.0), Color3.fromRGB(60, 65, 75), Enum.Material.Metal)
-		addPart(model, "Beacon", Vector3.new(0.9, 0.9, 0.9), bc * CFrame.new(2.0, 4.2, 2.0), Color3.fromRGB(90, 255, 130), Enum.Material.Neon, Enum.PartType.Ball)
-		local light = Instance.new("PointLight")
-		light.Color = Color3.fromRGB(60, 255, 120)
-		light.Range = 12
-		light.Parent = vortex
-
-	elseif machineType == "Storage" then
-		addPart(model, "SiloTank", Vector3.new(4.2, 4.2, 4.2), bc * CFrame.new(0, 2.3, 0) * CFrame.Angles(0, 0, math.rad(90)), cfg.Color, Enum.Material.Metal, Enum.PartType.Cylinder)
-		addPart(model, "Gauge", Vector3.new(0.4, 3.2, 4.35), bc * CFrame.new(0, 2.3, 0), Color3.fromRGB(110, 220, 255), Enum.Material.Neon)
-
-	-- ==================== 3. GÉNÉRATEURS D'ÉNERGIE ====================
-	elseif cfg.Category == "Energy" then
-		addPart(model, "CoreHousing", Vector3.new(4.0, 2.8, 4.0), bc * CFrame.new(0, 1.6, 0), Color3.fromRGB(55, 60, 72), Enum.Material.Metal)
-		local sphere = addPart(model, "EnergyCore", Vector3.new(2.6, 2.6, 2.6), bc * CFrame.new(0, 3.4, 0), cfg.Color, Enum.Material.Neon, Enum.PartType.Ball)
-		addPart(model, "Coil1", Vector3.new(0.5, 3.4, 3.4), bc * CFrame.new(0, 3.4, 0), Color3.fromRGB(90, 95, 110), Enum.Material.Metal, Enum.PartType.Cylinder)
-		local light = Instance.new("PointLight")
-		light.Color = cfg.Color
-		light.Range = 14
-		light.Brightness = 2
-		light.Parent = sphere
-
-	-- ==================== 4. MINES & FOREUSES (5 MINERAIS) ====================
-	elseif cfg.Category == "Extractors" then
-		-- Gisement de roche colorée au sol
-		addPart(model, "OreVein1", Vector3.new(2.6, 1.2, 2.6), bc * CFrame.new(0, 0.6, 0) * CFrame.Angles(0.2, 0.5, 0.1), cfg.Color, Enum.Material.Slate)
-		addPart(model, "OreVein2", Vector3.new(1.8, 1.5, 1.8), bc * CFrame.new(0.8, 0.7, 0.6) * CFrame.Angles(-0.3, 0.2, 0.4), cfg.Color, Enum.Material.Neon)
-		-- 4 Piliers de support + Arche supérieure
-		for _, sx in ipairs({ -1.9, 1.9 }) do
-			for _, sz in ipairs({ -1.9, 1.9 }) do
-				addPart(model, "Pillar", Vector3.new(0.5, 4.2, 0.5), bc * CFrame.new(sx, 2.3, sz), Color3.fromRGB(65, 70, 82), Enum.Material.Metal)
-			end
-		end
-		addPart(model, "TopRig", Vector3.new(4.5, 1.0, 4.5), bc * CFrame.new(0, 4.6, 0), cfg.Color, Enum.Material.Metal)
-		-- Mèche de forage centrale (animée côté client via le nom DrillHead)
-		addPart(model, "DrillHead", Vector3.new(1.3, 3.6, 1.3), bc * CFrame.new(0, 2.4, 0), Color3.fromRGB(190, 195, 205), Enum.Material.DiamondPlate)
-
-	-- ==================== 5. RAFFINERIES & FOURS ====================
-	elseif cfg.Category == "Refiners" then
-		if machineType == "IndustrialFurnace" or machineType == "PlasmaArcFurnace" then
-			addPart(model, "FurnaceBody", Vector3.new(4.4, 3.4, 4.4), bc * CFrame.new(0, 1.9, 0), cfg.Color, Enum.Material.Metal)
-			local core = addPart(model, "MoltenCore", Vector3.new(2.8, 1.8, 4.55), bc * CFrame.new(0, 1.5, 0), Color3.fromRGB(255, 150, 40), Enum.Material.Neon)
-			local chimney = addPart(model, "Chimney", Vector3.new(2.2, 1.5, 1.5), bc * CFrame.new(1.1, 4.2, 1.1) * CFrame.Angles(0, 0, math.rad(90)), Color3.fromRGB(40, 42, 50), Enum.Material.Metal, Enum.PartType.Cylinder)
-			if not isPreview then
-				local particles = Instance.new("ParticleEmitter")
-				particles.Color = ColorSequence.new(Color3.fromRGB(255, 170, 60), Color3.fromRGB(90, 90, 90))
-				particles.Size = NumberSequence.new(0.4, 1.2)
-				particles.Lifetime = NumberRange.new(1.0, 1.8)
-				particles.Rate = 8
-				particles.Speed = NumberRange.new(2, 4)
-				particles.Parent = chimney
-			end
-			local light = Instance.new("PointLight")
-			light.Color = core.Color
-			light.Range = 10
-			light.Parent = core
-		elseif machineType == "HydraulicPress" then
-			addPart(model, "Anvil", Vector3.new(3.6, 0.8, 3.6), bc * CFrame.new(0, 0.6, 0), Color3.fromRGB(80, 85, 95), Enum.Material.Metal)
-			addPart(model, "FrameL", Vector3.new(0.6, 4.2, 1.2), bc * CFrame.new(-1.9, 2.3, 0), cfg.Color, Enum.Material.Metal)
-			addPart(model, "FrameR", Vector3.new(0.6, 4.2, 1.2), bc * CFrame.new(1.9, 2.3, 0), cfg.Color, Enum.Material.Metal)
-			addPart(model, "TopBeam", Vector3.new(4.6, 0.9, 1.8), bc * CFrame.new(0, 4.5, 0), cfg.Color, Enum.Material.Metal)
-			addPart(model, "Piston", Vector3.new(2.6, 1.4, 2.6), bc * CFrame.new(0, 2.6, 0), Color3.fromRGB(210, 180, 50), Enum.Material.DiamondPlate)
-		elseif machineType == "LaserCutter" then
-			addPart(model, "Gantry", Vector3.new(4.4, 3.6, 1.4), bc * CFrame.new(0, 2.0, 0), Color3.fromRGB(50, 55, 68), Enum.Material.Metal)
-			addPart(model, "LaserEmitter", Vector3.new(1.2, 1.2, 1.2), bc * CFrame.new(0, 3.8, 0), cfg.Color, Enum.Material.Metal)
-			addPart(model, "LaserBeam", Vector3.new(0.25, 3.2, 0.25), bc * CFrame.new(0, 2.0, 0), Color3.fromRGB(255, 45, 130), Enum.Material.Neon)
-		else
-			-- Cuves Chimiques / Ultrasons / Centrifugeuses / Cryo
-			addPart(model, "VatWall", Vector3.new(4.4, 2.4, 4.4), bc * CFrame.new(0, 1.4, 0), Color3.fromRGB(60, 68, 82), Enum.Material.Metal)
-			addPart(model, "GlowingLiquid", Vector3.new(3.8, 2.1, 3.8), bc * CFrame.new(0, 1.65, 0), cfg.Color, Enum.Material.Neon)
-			addPart(model, "GlassChamber", Vector3.new(3.2, 2.2, 3.2), bc * CFrame.new(0, 3.4, 0), cfg.Color, Enum.Material.Glass)
-		end
-
-	-- ==================== 6. CHAMBRES D'ALLIAGES & HAUTE TECHNOLOGIE ====================
+	if customTemplate then
+		model = prepareCustomModel(customTemplate, cellSize, isPreview, cfg)
+		base = model.PrimaryPart :: Part
 	else
-		addPart(model, "ChamberLeft", Vector3.new(1.6, 3.4, 4.2), bc * CFrame.new(-1.5, 1.9, 0), Color3.fromRGB(55, 60, 75), Enum.Material.Metal)
-		addPart(model, "ChamberRight", Vector3.new(1.6, 3.4, 4.2), bc * CFrame.new(1.5, 1.9, 0), Color3.fromRGB(55, 60, 75), Enum.Material.Metal)
-		local fusionCore = addPart(model, "FusionCore", Vector3.new(2.2, 2.8, 2.8), bc * CFrame.new(0, 2.2, 0), cfg.Color, Enum.Material.Neon)
-		addPart(model, "TopArch", Vector3.new(4.6, 0.7, 2.2), bc * CFrame.new(0, 4.0, 0), cfg.Color, Enum.Material.Metal)
-		local light = Instance.new("PointLight")
-		light.Color = cfg.Color
-		light.Range = 11
-		light.Parent = fusionCore
+		model = Instance.new("Model")
+		model.Name = machineType
+
+		base = Instance.new("Part")
+		base.Name = "PrimaryPart"
+		base.Size = Vector3.new(cellSize - 0.3, baseHeight, cellSize - 0.3)
+		base.CFrame = CFrame.new(0, baseHeight / 2, 0)
+		base.Anchored = true
+		base.CanCollide = not isPreview
+		base.Color = DARK_METAL
+		base.Material = Enum.Material.Metal
+		base.TopSurface = Enum.SurfaceType.Smooth
+		base.BottomSurface = Enum.SurfaceType.Smooth
+		base.Parent = model
+		model.PrimaryPart = base
+
+		local bc = base.CFrame
+
+		if isBelt then
+			addPart(model, "BeltSurface", Vector3.new(4.2, 0.15, cellSize - 0.3), bc * CFrame.new(0, 0.2, 0), Color3.fromRGB(24, 26, 30), Enum.Material.Slate)
+			addPart(model, "RailL", Vector3.new(0.45, 0.45, cellSize - 0.3), bc * CFrame.new(-2.35, 0.3, 0), cfg.Color, Enum.Material.Metal)
+			addPart(model, "RailR", Vector3.new(0.45, 0.45, cellSize - 0.3), bc * CFrame.new(2.35, 0.3, 0), cfg.Color, Enum.Material.Metal)
+			for z = -2.0, 2.0, 1.0 do
+				addPart(model, "Roller", Vector3.new(0.25, 4.1, 0.25), bc * CFrame.new(0, 0.22, z) * CFrame.Angles(0, 0, math.rad(90)), MID_METAL, Enum.Material.Metal, Enum.PartType.Cylinder)
+			end
+			if cfg.TurnType == "Left" then
+				addPart(model, "CornerGuide", Vector3.new(0.45, 0.55, 4.6), bc * CFrame.new(0.3, 0.35, -0.3) * CFrame.Angles(0, math.rad(45), 0), cfg.Color, Enum.Material.Neon)
+			elseif cfg.TurnType == "Right" then
+				addPart(model, "CornerGuide", Vector3.new(0.45, 0.55, 4.6), bc * CFrame.new(-0.3, 0.35, -0.3) * CFrame.Angles(0, math.rad(-45), 0), cfg.Color, Enum.Material.Neon)
+			elseif machineType == "Merger" then
+				addPart(model, "ArchTop", Vector3.new(4.8, 1.8, 1.8), bc * CFrame.new(0, 1.2, 0), cfg.Color, Enum.Material.Metal)
+			elseif machineType == "Sorter" then
+				addPart(model, "ScannerTop", Vector3.new(4.8, 0.5, 1.4), bc * CFrame.new(0, 2.4, 0), cfg.Color, Enum.Material.Metal)
+				addPart(model, "LaserGrid", Vector3.new(3.8, 1.8, 0.1), bc * CFrame.new(0, 1.2, 0), Color3.fromRGB(0, 240, 255), Enum.Material.Neon)
+			end
+		elseif machineType == "DeliveryCenter" then
+			addPart(model, "HazardRim", Vector3.new(5.2, 0.35, 5.2), bc * CFrame.new(0, 0.25, 0), Color3.fromRGB(240, 180, 25), Enum.Material.DiamondPlate)
+			addPart(model, "TeleporterPad", Vector3.new(0.5, 3.6, 3.6), bc * CFrame.new(0, 0.35, 0) * CFrame.Angles(0, 0, math.rad(90)), Color3.fromRGB(45, 240, 115), Enum.Material.Neon, Enum.PartType.Cylinder)
+		elseif machineType == "Storage" then
+			addPart(model, "SiloCylinder", Vector3.new(4.0, 3.8, 3.8), bc * CFrame.new(0, 2.2, 0) * CFrame.Angles(0, 0, math.rad(90)), cfg.Color, Enum.Material.Metal, Enum.PartType.Cylinder)
+		elseif cfg.Category == "Energy" then
+			addPart(model, "ReactorPedestal", Vector3.new(4.4, 1.2, 4.4), bc * CFrame.new(0, 0.7, 0), MID_METAL, Enum.Material.Metal)
+			addPart(model, "PlasmaSphere", Vector3.new(2.6, 2.6, 2.6), bc * CFrame.new(0, 2.8, 0), cfg.Color, Enum.Material.Neon, Enum.PartType.Ball)
+			addPart(model, "RotorSpinner", Vector3.new(0.45, 3.6, 3.6), bc * CFrame.new(0, 2.8, 0), LIGHT_STEEL, Enum.Material.Metal, Enum.PartType.Cylinder)
+		elseif cfg.Category == "Extractors" then
+			addPart(model, "RockBed", Vector3.new(3.4, 0.7, 3.4), bc * CFrame.new(0, 0.4, 0), Color3.fromRGB(75, 72, 68), Enum.Material.Slate)
+			for _, sx in ipairs({ -2.0, 2.0 }) do
+				for _, sz in ipairs({ -2.0, 2.0 }) do
+					addPart(model, "RigLeg", Vector3.new(0.55, 4.4, 0.55), bc * CFrame.new(sx, 2.35, sz), DARK_METAL, Enum.Material.Metal)
+				end
+			end
+			addPart(model, "TopMotorBox", Vector3.new(4.8, 1.1, 4.8), bc * CFrame.new(0, 4.8, 0), cfg.Color, Enum.Material.Metal)
+			addPart(model, "DrillHead", Vector3.new(1.3, 3.8, 1.3), bc * CFrame.new(0, 2.6, 0), LIGHT_STEEL, Enum.Material.DiamondPlate)
+		elseif cfg.Category == "Refiners" then
+			addPart(model, "FurnaceChamber", Vector3.new(4.2, 3.2, 4.2), bc * CFrame.new(0, 1.75, 0), cfg.Color, Enum.Material.Metal)
+			addPart(model, "MoltenWindow", Vector3.new(2.6, 1.6, 4.35), bc * CFrame.new(0, 1.5, 0), Color3.fromRGB(255, 145, 35), Enum.Material.Neon)
+		else
+			addPart(model, "WingL", Vector3.new(1.3, 3.6, 4.2), bc * CFrame.new(-1.7, 1.95, 0), DARK_METAL, Enum.Material.Metal)
+			addPart(model, "WingR", Vector3.new(1.3, 3.6, 4.2), bc * CFrame.new(1.7, 1.95, 0), DARK_METAL, Enum.Material.Metal)
+			addPart(model, "FusionSphere", Vector3.new(2.1, 2.1, 2.1), bc * CFrame.new(0, 2.4, 0), cfg.Color, Enum.Material.Neon, Enum.PartType.Ball)
+			addPart(model, "RotorSpinner", Vector3.new(2.8, 0.45, 2.8), bc * CFrame.new(0, 2.4, 0), LIGHT_STEEL, Enum.Material.Metal)
+		end
 	end
 
-	-- ==================== FLÈCHE DIRECTIONNELLE DE SORTIE ====================
-	local turnAngle = 0
-	if cfg.TurnType == "Left" then
-		turnAngle = 90
-	elseif cfg.TurnType == "Right" then
-		turnAngle = -90
-	end
-
-	local arrowPivot = bc * CFrame.Angles(0, math.rad(turnAngle), 0)
-	local arrowY = isBelt and (baseHeight / 2 + 0.12) or (baseHeight / 2 + 0.15)
-	local arrowZ = isBelt and -0.7 or -2.1
-
-	addPart(model, "DirectionIndicator", Vector3.new(0.85, 0.2, 1.5), arrowPivot * CFrame.new(0, arrowY, arrowZ), Color3.fromRGB(255, 255, 255), Enum.Material.Neon)
+	-- Flèche directionnelle commune à tous les modèles (FBX comme Lua)
+	local baseCF = base.CFrame
+	local turnAngle = (cfg.TurnType == "Left" and 90) or (cfg.TurnType == "Right" and -90) or 0
+	local arrowPivot = baseCF * CFrame.Angles(0, math.rad(turnAngle), 0)
+	local arrowY = (baseHeight / 2) + 0.1
+	local arrowZ = isBelt and -0.4 or -2.2
 
 	local tip = Instance.new("WedgePart")
 	tip.Name = "ArrowTip"
-	tip.Size = Vector3.new(0.2, 1.3, 0.85)
+	tip.Size = Vector3.new(0.15, 0.9, 0.9)
 	tip.Anchored = true
 	tip.CanCollide = false
 	tip.CanQuery = false
-	tip.Color = Color3.fromRGB(255, 230, 65)
+	tip.Color = Color3.fromRGB(255, 225, 60)
 	tip.Material = Enum.Material.Neon
-	tip.CFrame = arrowPivot * CFrame.new(0, arrowY, arrowZ - 0.95) * CFrame.Angles(0, 0, math.rad(90))
+	tip.CFrame = arrowPivot * CFrame.new(0, arrowY, arrowZ) * CFrame.Angles(0, 0, math.rad(90))
 	tip.Parent = model
 
 	if isPreview then
 		for _, part in ipairs(model:GetDescendants()) do
 			if part:IsA("BasePart") then
-				part.Transparency = 0.45
+				part.Transparency = math.max(part.Transparency, 0.45)
 				part.CanCollide = false
 			end
 		end
 		return model
 	end
 
-	-- Panneau d'état (BillboardGui)
-	local billboard = Instance.new("BillboardGui")
-	billboard.Name = "StatusGui"
-	billboard.Size = UDim2.new(0, 145, 0, 48)
-	billboard.StudsOffset = Vector3.new(0, isBelt and 2.6 or 5.8, 0)
-	billboard.MaxDistance = 65
-	billboard.Parent = base
+	if not isBelt then
+		local billboard = Instance.new("BillboardGui")
+		billboard.Name = "StatusGui"
+		billboard.Size = UDim2.new(0, 125, 0, 36)
+		billboard.StudsOffset = Vector3.new(0, 5.8, 0)
+		billboard.MaxDistance = 50
+		billboard.Parent = base
 
-	local bg = Instance.new("Frame")
-	bg.Name = "Background"
-	bg.Size = UDim2.new(1, 0, 1, 0)
-	bg.BackgroundColor3 = Color3.fromRGB(16, 20, 30)
-	bg.BackgroundTransparency = 0.2
-	bg.BorderSizePixel = 0
-	bg.Parent = billboard
+		local bg = Instance.new("Frame")
+		bg.Name = "Background"
+		bg.Size = UDim2.new(1, 0, 1, 0)
+		bg.BackgroundColor3 = Color3.fromRGB(14, 18, 28)
+		bg.BackgroundTransparency = 0.25
+		bg.BorderSizePixel = 0
+		bg.Parent = billboard
 
-	local corner = Instance.new("UICorner")
-	corner.CornerRadius = UDim.new(0, 6)
-	corner.Parent = bg
+		local corner = Instance.new("UICorner")
+		corner.CornerRadius = UDim.new(0, 6)
+		corner.Parent = bg
 
-	local titleLbl = Instance.new("TextLabel")
-	titleLbl.Name = "TitleLabel"
-	titleLbl.Size = UDim2.new(1, -6, 0.5, 0)
-	titleLbl.Position = UDim2.new(0, 3, 0, 2)
-	titleLbl.BackgroundTransparency = 1
-	titleLbl.Text = cfg.Name
-	titleLbl.TextColor3 = Color3.fromRGB(255, 255, 255)
-	titleLbl.Font = Enum.Font.GothamBold
-	titleLbl.TextScaled = true
-	titleLbl.Parent = bg
+		local titleLbl = Instance.new("TextLabel")
+		titleLbl.Name = "TitleLabel"
+		titleLbl.Size = UDim2.new(1, -6, 0.5, 0)
+		titleLbl.Position = UDim2.new(0, 3, 0, 1)
+		titleLbl.BackgroundTransparency = 1
+		titleLbl.Text = cfg.Name
+		titleLbl.TextColor3 = Color3.fromRGB(255, 255, 255)
+		titleLbl.Font = Enum.Font.GothamBold
+		titleLbl.TextScaled = true
+		titleLbl.Parent = bg
 
-	local statusLbl = Instance.new("TextLabel")
-	statusLbl.Name = "StatusLabel"
-	statusLbl.Size = UDim2.new(1, -6, 0.45, 0)
-	statusLbl.Position = UDim2.new(0, 3, 0.5, 0)
-	statusLbl.BackgroundTransparency = 1
-	statusLbl.Text = "Prêt"
-	statusLbl.TextColor3 = Color3.fromRGB(150, 240, 165)
-	statusLbl.Font = Enum.Font.GothamMedium
-	statusLbl.TextScaled = true
-	statusLbl.Parent = bg
+		local statusLbl = Instance.new("TextLabel")
+		statusLbl.Name = "StatusLabel"
+		statusLbl.Size = UDim2.new(1, -6, 0.45, 0)
+		statusLbl.Position = UDim2.new(0, 3, 0.5, 0)
+		statusLbl.BackgroundTransparency = 1
+		statusLbl.Text = "Prêt"
+		statusLbl.TextColor3 = Color3.fromRGB(140, 245, 160)
+		statusLbl.Font = Enum.Font.GothamMedium
+		statusLbl.TextScaled = true
+		statusLbl.Parent = bg
+	end
 
 	return model
 end

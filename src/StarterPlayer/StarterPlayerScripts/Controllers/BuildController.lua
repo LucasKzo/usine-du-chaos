@@ -6,7 +6,6 @@ local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local PlotAndPrestigeConfig = require(ReplicatedStorage.Shared.Config.PlotAndPrestigeConfig)
-local MachineConfig = require(ReplicatedStorage.Shared.Config.MachineConfig)
 local ModelFactory = require(ReplicatedStorage.Shared.ModelFactory)
 
 local BuildController = {}
@@ -116,11 +115,11 @@ function BuildController.Init()
 			end
 			BuildController.IsValidPlacement = not occupied
 
-			local cfg = MachineConfig.Get(BuildController.SelectedMachineType)
-			local height = (cfg and cfg.IsBelt) and 0.9 or 3.6
+			local baseHeight = BuildController.PreviewModel.PrimaryPart and BuildController.PreviewModel.PrimaryPart.Size.Y or 0.6
+			local floorTopY = basePart.Position.Y + (basePart.Size.Y / 2)
 			local worldX = originX + (gx - 0.5) * cellSize
 			local worldZ = originZ + (gz - 0.5) * cellSize
-			local worldY = basePart.Position.Y + 0.5 + (height / 2)
+			local worldY = floorTopY + (baseHeight / 2)
 
 			local cf = CFrame.new(worldX, worldY, worldZ) * CFrame.Angles(0, math.rad(-BuildController.Rotation), 0)
 			ModelFactory.PivotMachineModel(BuildController.PreviewModel, cf)

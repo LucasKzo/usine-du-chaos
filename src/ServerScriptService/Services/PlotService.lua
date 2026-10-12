@@ -4,6 +4,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local PlotAndPrestigeConfig = require(ReplicatedStorage.Shared.Config.PlotAndPrestigeConfig)
 local MachineConfig = require(ReplicatedStorage.Shared.Config.MachineConfig)
+local ResourceConfig = require(ReplicatedStorage.Shared.Config.ResourceConfig)
 local ModelFactory = require(ReplicatedStorage.Shared.ModelFactory)
 
 local PlotService = {}
@@ -14,7 +15,46 @@ function PlotService.Init()
 	plotsFolder.Name = "Plots"
 	plotsFolder.Parent = Workspace
 
-	local maxPlotSize = 16 * PlotAndPrestigeConfig.CellSize -- Espacement prévu pour le palier 16x16
+	local customAssets = ReplicatedStorage:FindFirstChild("CustomAssets") or Instance.new("Folder")
+	customAssets.Name = "CustomAssets"
+	customAssets.Parent = ReplicatedStorage
+
+	local machinesAssets = customAssets:FindFirstChild("Machines") or Instance.new("Folder")
+	machinesAssets.Name = "Machines"
+	machinesAssets.Parent = customAssets
+
+	local resourcesAssets = customAssets:FindFirstChild("Resources") or Instance.new("Folder")
+	resourcesAssets.Name = "Resources"
+	resourcesAssets.Parent = customAssets
+
+	-- Rangement automatique : détecte tout modèle .fbx importé dans Workspace ou ReplicatedStorage !
+	for _, container in ipairs({ Workspace, ReplicatedStorage }) do
+		for _, child in ipairs(container:GetChildren()) do
+			if child:IsA("Model") or child:IsA("BasePart") then
+				for machineId, _ in pairs(MachineConfig.Definitions) do
+					if string.lower(child.Name) == string.lower(machineId) or string.find(string.lower(child.Name), string.lower(machineId), 1, true) then
+						local existing = machinesAssets:FindFirstChild(machineId)
+						if existing then existing:Destroy() end
+						child.Name = machineId
+						child.Parent = machinesAssets
+						print("[CustomAssets] Modèle 3D détecté et activé :", machineId)
+						break
+					end
+				end
+				for resId, _ in pairs(ResourceConfig.Items) do
+					if string.lower(child.Name) == string.lower(resId) then
+						local existing = resourcesAssets:FindFirstChild(resId)
+						if existing then existing:Destroy() end
+						child.Name = resId
+						child.Parent = resourcesAssets
+						break
+					end
+				end
+			end
+		end
+	end
+
+	local maxPlotSize = 16 * PlotAndPrestigeConfig.CellSize
 
 	for i = 1, 8 do
 		local row = (i <= 4) and 0 or 1
@@ -77,7 +117,6 @@ function PlotService.Init()
 	end
 end
 
--- Ajuste physiquement la taille de la dalle selon le PlotTier du joueur
 function PlotService.ApplyPlotTierSize(plotIndex: number, plotTier: number)
 	local plot = PlotService.Plots[plotIndex]
 	if not plot then return end
@@ -88,7 +127,7 @@ function PlotService.ApplyPlotTierSize(plotIndex: number, plotTier: number)
 	plot.BasePart:SetAttribute("Cells", tierCfg.Cells)
 end
 
-function PlotService.GridToWorldCFrame(plotIndex: number, cellsCount: number, gridX: number, gridZ: number, rotation: number, machineType: string): CFrame
+function PlotService.GridToWorldCFrame(plotIndex: number, cellsCount: number, gridX: number, gridZ: number, rotation: number, machineType: string, baseHeightOverride: number?): CFrame
 	local plot = PlotService.Plots[plotIndex]
 	local cellSize = PlotAndPrestigeConfig.CellSize
 	local totalSize = cellsCount * cellSize
@@ -99,8 +138,9 @@ function PlotService.GridToWorldCFrame(plotIndex: number, cellsCount: number, gr
 	local worldX = originX + (gridX - 0.5) * cellSize
 	local worldZ = originZ + (gridZ - 0.5) * cellSize
 	local cfg = MachineConfig.Get(machineType)
-	local height = (cfg and cfg.IsBelt) and 0.9 or 3.6
-	local worldY = plot.CenterPos.Y + 0.5 + (height / 2)
+	local baseHeight = baseHeightOverride or ((cfg and cfg.IsBelt) and 0.4 or 0.6)
+	local floorTopY = plot.CenterPos.Y + (plot.BasePart.Size.Y / 2)
+	local worldY = floorTopY + (baseHeight / 2)
 
 	return CFrame.new(worldX, worldY, worldZ) * CFrame.Angles(0, math.rad(-rotation), 0)
 end
@@ -118,7 +158,8 @@ function PlotService.SpawnMachineModel(plotIndex: number, cellsCount: number, ma
 	model:SetAttribute("Rotation", machineData.Rotation)
 	model:SetAttribute("Level", machineData.Level)
 
-	local cf = PlotService.GridToWorldCFrame(plotIndex, cellsCount, machineData.GridX, machineData.GridZ, machineData.Rotation, machineData.Type)
+	local baseHeight = model.PrimaryPart and model.PrimaryPart.Size.Y or 0.3
+	local cf = PlotService.GridToWorldCFrame(plotIndex, cellsCount, machineData.GridX, machineData.GridZ, machineData.Rotation, machineData.Type, baseHeight)
 	ModelFactory.PivotMachineModel(model, cf)
 	model.Parent = plot.MachinesFolder
 end

@@ -30,22 +30,9 @@ local function countBuffer(buf: { [string]: number }): number
 	return total
 end
 
-local function getFirstItemInBuffers(m): string?
-	for resId, qty in pairs(m.OutputBuffer) do
-		if qty > 0 then return resId end
-	end
-	for resId, qty in pairs(m.InputBuffer) do
-		if qty > 0 then return resId end
-	end
-	return nil
-end
-
 local function updateBillboard(plot, machineData, text: string, color: Color3)
 	local model = plot.MachinesFolder:FindFirstChild(machineData.Id)
 	if not model or not model.PrimaryPart then return end
-
-	-- Mettre à jour l'attribut VisualItem pour l'affichage 3D du minerai sur le tapis
-	model:SetAttribute("VisualItem", getFirstItemInBuffers(machineData) or "")
 
 	local gui = model.PrimaryPart:FindFirstChild("StatusGui")
 	if not gui then return end
@@ -106,38 +93,10 @@ function ProductionService.SimulatePlot(player: Player, plot: any, data: any, dt
 	local hasEnoughEnergy = (energyProduced >= energyConsumed)
 	local prestigeMult = PlotAndPrestigeConfig.GetPrestigeMultiplier(data.Prestige or 0)
 
+	-- =========================================================================
+	-- ÉTAPE 1 : Vente au Centre de Livraison (vend ce qui est arrivé au tick précédent)
+	-- =========================================================================
 	for _, m in ipairs(data.Machines) do
-		local cfg = MachineConfig.Get(m.Type)
-		if not cfg then continue end
-
-		local chaos = plot.ActiveChaosEffects[m.Id]
-		if chaos and os.time() >= chaos.ExpiresAt then
-			plot.ActiveChaosEffects[m.Id] = nil
-			chaos = nil
-		end
-
-		local speedMult = 1 + ((m.Level - 1) * 0.45)
-		if activeEventId == "Overclock" then speedMult = speedMult * 2.0 end
-
-		if chaos then
-			if chaos.EffectType == "Jammer" then
-				speedMult = speedMult * 0.4
-			elseif chaos.EffectType == "Overload" then
-				if (chaos.ExpiresAt - os.time()) > 10 then
-					speedMult = speedMult * 2.0
-				else
-					updateBillboard(plot, m, "SURCHARGE (Arrêt)", Color3.fromRGB(255, 80, 80))
-					continue
-				end
-			end
-		end
-
-		if cfg.EnergyConsumption > 0 and not hasEnoughEnergy then
-			updateBillboard(plot, m, "Manque Énergie (" .. energyProduced .. "/" .. energyConsumed .. ")", Color3.fromRGB(255, 90, 70))
-			continue
-		end
-
-		-- CAS 1 : Centre de Livraison
 		if m.Type == "DeliveryCenter" then
 			local totalEarned = 0
 			for resId, qty in pairs(m.InputBuffer) do
@@ -172,11 +131,84 @@ function ProductionService.SimulatePlot(player: Player, plot: any, data: any, dt
 			else
 				updateBillboard(plot, m, "En attente (x" .. tostring(prestigeMult) .. ")", Color3.fromRGB(180, 225, 190))
 			end
-			continue
+		end
+	end
+
+	-- =========================================================================
+	-- ÉTAPE 2 : Transfert d'UNE SEULE CASE pour les objets déjà prêts en OutputBuffer
+	-- =========================================================================
+	local transfersToExecute = {}
+
+	for _, m in ipairs(data.Machines) do
+		local cfg = MachineConfig.Get(m.Type)
+		if not cfg or countBuffer(m.OutputBuffer) <= 0 then continue end
+
+		local chaos = plot.ActiveChaosEffects[m.Id]
+		local baseRot = m.Rotation
+		if chaos and chaos.EffectType == "Inverter" then
+			baseRot = (baseRot + 180) % 360
 		end
 
-		-- CAS 2 : Tapis roulants, virages 90°, jonctions et silos
-		if cfg.IsBelt or m.Type == "Storage" then
+		local transferRate = (cfg.TransferRate or 1) * m.Level
+		local transferred = 0
+
+		for resId, qty in pairs(m.OutputBuffer) do
+			if qty > 0 and transferred < transferRate then
+				local outRot = baseRot
+				if cfg.TurnType == "Left" then
+					outRot = (baseRot - 90) % 360
+				elseif cfg.TurnType == "Right" then
+					outRot = (baseRot + 90) % 360
+				elseif cfg.TurnType == "Sorter" then
+					local itemInfo = ResourceConfig.Items[resId]
+					if itemInfo and itemInfo.IsRaw then
+						outRot = (baseRot + 90) % 360
+					end
+				end
+
+				local dx, dz = getDirectionOffset(outRot)
+				local targetMachine = gridMap[tostring(m.GridX + dx) .. "_" .. tostring(m.GridZ + dz)]
+
+				if targetMachine then
+					local targetCfg = MachineConfig.Get(targetMachine.Type)
+					local targetMaxIn = targetCfg and (targetCfg.InputCapacity * targetMachine.Level) or 0
+					local spaceLeft = targetMaxIn - countBuffer(targetMachine.InputBuffer)
+
+					if spaceLeft > 0 then
+						local moveAmt = math.min(qty, transferRate - transferred, spaceLeft)
+						m.OutputBuffer[resId] = qty - moveAmt
+						if m.OutputBuffer[resId] <= 0 then m.OutputBuffer[resId] = nil end
+						transferred = transferred + moveAmt
+
+						table.insert(transfersToExecute, {
+							FromMachine = m,
+							ToMachine = targetMachine,
+							ResId = resId,
+							Amount = moveAmt,
+						})
+					end
+				end
+			end
+		end
+	end
+
+	-- Application simultanée des transferts (impossible qu'un lingot saute 2 ou 3 tapis d'un coup)
+	for _, tr in ipairs(transfersToExecute) do
+		tr.ToMachine.InputBuffer[tr.ResId] = (tr.ToMachine.InputBuffer[tr.ResId] or 0) + tr.Amount
+		local model = plot.MachinesFolder:FindFirstChild(tr.FromMachine.Id)
+		if model then
+			model:SetAttribute("LastMovedItem", tr.ResId)
+			model:SetAttribute("TargetMachineId", tr.ToMachine.Id)
+			model:SetAttribute("TransferSeq", (model:GetAttribute("TransferSeq") or 0) + 1)
+		end
+	end
+
+	-- =========================================================================
+	-- ÉTAPE 3 : Les tapis préparent les ressources reçues pour le PROCHAIN tick
+	-- =========================================================================
+	for _, m in ipairs(data.Machines) do
+		local cfg = MachineConfig.Get(m.Type)
+		if cfg and (cfg.IsBelt or m.Type == "Storage") then
 			local maxCap = cfg.OutputCapacity * m.Level
 			for resId, qty in pairs(m.InputBuffer) do
 				if qty > 0 and countBuffer(m.OutputBuffer) < maxCap then
@@ -188,8 +220,42 @@ function ProductionService.SimulatePlot(player: Player, plot: any, data: any, dt
 				end
 			end
 		end
+	end
 
-		-- CAS 3 : Machines à recettes (Mines, Raffineries et Forges d'Alliages)
+	-- =========================================================================
+	-- ÉTAPE 4 : Fabrication des Mines et des Fours (sortira au tick suivant)
+	-- =========================================================================
+	for _, m in ipairs(data.Machines) do
+		local cfg = MachineConfig.Get(m.Type)
+		if not cfg or m.Type == "DeliveryCenter" or cfg.IsBelt or m.Type == "Storage" then continue end
+
+		local chaos = plot.ActiveChaosEffects[m.Id]
+		if chaos and os.time() >= chaos.ExpiresAt then
+			plot.ActiveChaosEffects[m.Id] = nil
+			chaos = nil
+		end
+
+		local speedMult = 1 + ((m.Level - 1) * 0.45)
+		if activeEventId == "Overclock" then speedMult = speedMult * 2.0 end
+
+		if chaos then
+			if chaos.EffectType == "Jammer" then
+				speedMult = speedMult * 0.4
+			elseif chaos.EffectType == "Overload" then
+				if (chaos.ExpiresAt - os.time()) > 10 then
+					speedMult = speedMult * 2.0
+				else
+					updateBillboard(plot, m, "SURCHARGE (Arrêt)", Color3.fromRGB(255, 80, 80))
+					continue
+				end
+			end
+		end
+
+		if cfg.EnergyConsumption > 0 and not hasEnoughEnergy then
+			updateBillboard(plot, m, "Manque Énergie (" .. energyProduced .. "/" .. energyConsumed .. ")", Color3.fromRGB(255, 90, 70))
+			continue
+		end
+
 		if cfg.Recipes then
 			local maxOut = cfg.OutputCapacity * m.Level
 			if countBuffer(m.OutputBuffer) >= maxOut then
@@ -213,10 +279,10 @@ function ProductionService.SimulatePlot(player: Player, plot: any, data: any, dt
 				if matchedRecipe then
 					m.Progress = m.Progress + (dt * speedMult)
 					local pct = math.clamp(math.floor((m.Progress / cfg.ProcessTime) * 100), 0, 100)
-					updateBillboard(plot, m, "En cours : " .. tostring(pct) .. "%", Color3.fromRGB(110, 240, 145))
 
 					if m.Progress >= cfg.ProcessTime then
 						m.Progress = 0
+						updateBillboard(plot, m, "En cours : 100%", Color3.fromRGB(110, 240, 145))
 						local isCrafting = (next(matchedRecipe.Inputs) ~= nil)
 						for reqItem, reqQty in pairs(matchedRecipe.Inputs) do
 							m.InputBuffer[reqItem] = m.InputBuffer[reqItem] - reqQty
@@ -228,6 +294,8 @@ function ProductionService.SimulatePlot(player: Player, plot: any, data: any, dt
 						if isCrafting then
 							PlayerDataService.AdvanceContract(player, "CraftItems", 1)
 						end
+					else
+						updateBillboard(plot, m, "En cours : " .. tostring(pct) .. "%", Color3.fromRGB(110, 240, 145))
 					end
 				else
 					m.Progress = 0
@@ -236,65 +304,6 @@ function ProductionService.SimulatePlot(player: Player, plot: any, data: any, dt
 			end
 		elseif cfg.EnergyProduction > 0 then
 			updateBillboard(plot, m, "+" .. tostring(cfg.EnergyProduction * m.Level) .. " Énergie", Color3.fromRGB(255, 230, 80))
-		end
-
-		-- 4. Transfert vers la case cible et déclenchement de l'animation 3D
-		if countBuffer(m.OutputBuffer) > 0 then
-			local baseRot = m.Rotation
-			if chaos and chaos.EffectType == "Inverter" then
-				baseRot = (baseRot + 180) % 360
-			end
-
-			local transferRate = (cfg.TransferRate or 2) * m.Level
-			local transferred = 0
-
-			for resId, qty in pairs(m.OutputBuffer) do
-				if qty > 0 and transferred < transferRate then
-					local outRot = baseRot
-					if cfg.TurnType == "Left" then
-						outRot = (baseRot - 90) % 360
-					elseif cfg.TurnType == "Right" then
-						outRot = (baseRot + 90) % 360
-					elseif cfg.TurnType == "Sorter" then
-						local itemInfo = ResourceConfig.Items[resId]
-						if itemInfo and itemInfo.IsRaw then
-							outRot = (baseRot + 90) % 360
-						end
-					end
-
-					local dx, dz = getDirectionOffset(outRot)
-					local targetMachine = gridMap[tostring(m.GridX + dx) .. "_" .. tostring(m.GridZ + dz)]
-
-					if targetMachine then
-						local targetCfg = MachineConfig.Get(targetMachine.Type)
-						local targetMaxIn = targetCfg and (targetCfg.InputCapacity * targetMachine.Level) or 0
-						local spaceLeft = targetMaxIn - countBuffer(targetMachine.InputBuffer)
-
-						if spaceLeft > 0 then
-							local moveAmt = math.min(qty, transferRate - transferred, spaceLeft)
-							targetMachine.InputBuffer[resId] = (targetMachine.InputBuffer[resId] or 0) + moveAmt
-							m.OutputBuffer[resId] = qty - moveAmt
-							if m.OutputBuffer[resId] <= 0 then m.OutputBuffer[resId] = nil end
-							transferred = transferred + moveAmt
-
-							-- Signaler au client le glissement 3D de la ressource vers la machine cible
-							local model = plot.MachinesFolder:FindFirstChild(m.Id)
-							if model then
-								model:SetAttribute("LastMovedItem", resId)
-								model:SetAttribute("TargetMachineId", targetMachine.Id)
-								model:SetAttribute("TransferSeq", (model:GetAttribute("TransferSeq") or 0) + 1)
-							end
-
-							if cfg.IsBelt then
-								local rName = ResourceConfig.Items[resId] and ResourceConfig.Items[resId].Name or resId
-								updateBillboard(plot, m, rName, Color3.fromRGB(135, 205, 255))
-							end
-						end
-					end
-				end
-			end
-		elseif cfg.IsBelt then
-			updateBillboard(plot, m, "Vide", Color3.fromRGB(175, 185, 200))
 		end
 	end
 end
