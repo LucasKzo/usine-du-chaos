@@ -27,7 +27,6 @@ function PlotService.Init()
 	resourcesAssets.Name = "Resources"
 	resourcesAssets.Parent = customAssets
 
-	-- Rangement automatique : détecte tout modèle .fbx importé dans Workspace ou ReplicatedStorage !
 	for _, container in ipairs({ Workspace, ReplicatedStorage }) do
 		for _, child in ipairs(container:GetChildren()) do
 			if child:IsA("Model") or child:IsA("BasePart") then
@@ -37,7 +36,6 @@ function PlotService.Init()
 						if existing then existing:Destroy() end
 						child.Name = machineId
 						child.Parent = machinesAssets
-						print("[CustomAssets] Modèle 3D détecté et activé :", machineId)
 						break
 					end
 				end
@@ -117,29 +115,39 @@ function PlotService.Init()
 	end
 end
 
+-- CORRECTION DU BUG D'AGRANDISSEMENT DE LA DALLE
 function PlotService.ApplyPlotTierSize(plotIndex: number, plotTier: number)
 	local plot = PlotService.Plots[plotIndex]
 	if not plot then return end
 	local tierCfg = PlotAndPrestigeConfig.PlotTiers[plotTier] or PlotAndPrestigeConfig.PlotTiers[1]
+	local startTierCfg = PlotAndPrestigeConfig.PlotTiers[1]
+	
 	local dim = tierCfg.Cells * PlotAndPrestigeConfig.CellSize
+	local startDim = startTierCfg.Cells * PlotAndPrestigeConfig.CellSize
+	
 	plot.BasePart.Size = Vector3.new(dim, 1, dim)
-	plot.BasePart.Position = plot.CenterPos
+	
+	-- Garde la case en haut à gauche physiquement fixe au lieu de s'agrandir par le centre !
+	local offset = (dim - startDim) / 2
+	plot.BasePart.Position = plot.CenterPos + Vector3.new(offset, 0, offset)
 	plot.BasePart:SetAttribute("Cells", tierCfg.Cells)
 end
 
 function PlotService.GridToWorldCFrame(plotIndex: number, cellsCount: number, gridX: number, gridZ: number, rotation: number, machineType: string, baseHeightOverride: number?): CFrame
 	local plot = PlotService.Plots[plotIndex]
 	local cellSize = PlotAndPrestigeConfig.CellSize
-	local totalSize = cellsCount * cellSize
-
-	local originX = plot.CenterPos.X - (totalSize / 2)
-	local originZ = plot.CenterPos.Z - (totalSize / 2)
+	
+	-- Utilise toujours la dimension de base pour l'origine, ainsi la Grille ne se décale jamais
+	local startDim = PlotAndPrestigeConfig.PlotTiers[1].Cells * cellSize
+	local originX = plot.CenterPos.X - (startDim / 2)
+	local originZ = plot.CenterPos.Z - (startDim / 2)
 
 	local worldX = originX + (gridX - 0.5) * cellSize
 	local worldZ = originZ + (gridZ - 0.5) * cellSize
 	local cfg = MachineConfig.Get(machineType)
-	local baseHeight = baseHeightOverride or ((cfg and cfg.IsBelt) and 0.4 or 0.6)
-	local floorTopY = plot.CenterPos.Y + (plot.BasePart.Size.Y / 2)
+	local baseHeight = baseHeightOverride or ((cfg and cfg.IsBelt) and 0.3 or 0.3)
+	
+	local floorTopY = plot.CenterPos.Y + 0.5 -- Épaisseur de la dalle
 	local worldY = floorTopY + (baseHeight / 2)
 
 	return CFrame.new(worldX, worldY, worldZ) * CFrame.Angles(0, math.rad(-rotation), 0)

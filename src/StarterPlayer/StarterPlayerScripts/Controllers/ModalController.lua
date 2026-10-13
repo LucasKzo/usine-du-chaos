@@ -71,42 +71,60 @@ function ModalController.Init(screenGui: ScreenGui)
 end
 
 function ModalController.OpenShop(categoryFilter: string?)
-	clearScroll()
-	modalTitle.Text = (categoryFilter == "Belts") and "Catalogue des Tapis & Virages 90°" or "Catalogue des Machines (5 Minerais & Alliages)"
+    clearScroll()
+    modalTitle.Text = (categoryFilter == "Belts") and "Catalogue des Tapis & Virages 90°" or "Catalogue des Machines (5 Minerais & Alliages)"
 
-	local data = ModalController.PlayerData
-	local existingCenters = 0
-	if data and data.Machines then
-		for _, m in ipairs(data.Machines) do
-			if m.Type == "DeliveryCenter" then existingCenters = existingCenters + 1 end
-		end
-	end
+    local data = ModalController.PlayerData
+    local existingCenters = 0
+    if data and data.Machines then
+        for _, m in ipairs(data.Machines) do
+            if m.Type == "DeliveryCenter" then existingCenters = existingCenters + 1 end
+        end
+    end
 
-	local count = 0
-	for _, id in ipairs(SHOP_ORDER) do
-		local cfg = MachineConfig.Get(id)
-		if cfg and ((categoryFilter == "Belts" and cfg.IsBelt) or (categoryFilter ~= "Belts" and not cfg.IsBelt)) then
-			count = count + 1
-			local price = (id == "DeliveryCenter") and PlotAndPrestigeConfig.GetDeliveryCenterCost(existingCenters) or cfg.Price
+    local count = 0
+    for _, id in ipairs(SHOP_ORDER) do
+        local cfg = MachineConfig.Get(id)
+        if cfg and ((categoryFilter == "Belts" and cfg.IsBelt) or (categoryFilter ~= "Belts" and not cfg.IsBelt)) then
+            count = count + 1
+            -- Utilisation de cfg.Cost au lieu de cfg.Price
+            local price = (id == "DeliveryCenter") and PlotAndPrestigeConfig.GetDeliveryCenterCost(existingCenters) or (cfg.Cost or 0)
 
-			local card = Instance.new("Frame")
-			card.Size = UDim2.new(1, -12, 0, 58)
-			UITheme.StyleFrame(card, Color3.fromRGB(30, 36, 52), 8)
-			card.Parent = contentScroll
+            local card = Instance.new("Frame")
+            card.Size = UDim2.new(1, -12, 0, 58)
+            UITheme.StyleFrame(card, Color3.fromRGB(30, 36, 52), 8)
+            card.Parent = contentScroll
 
-			local priceText = (price == 0) and "GRATUIT (1er)" or (tostring(price) .. " $")
-			UITheme.CreateLabel(card, cfg.Name .. "  —  " .. priceText, UDim2.new(0.7, 0, 0.5, 0), UDim2.new(0, 12, 0, 4), Color3.new(1, 1, 1), 15, true)
-			UITheme.CreateLabel(card, cfg.Description, UDim2.new(0.7, 0, 0.45, 0), UDim2.new(0, 12, 0.5, 0), Color3.fromRGB(185, 195, 215), 12, true)
+            local priceText = (price == 0) and "GRATUIT (1er)" or (tostring(price) .. " $")
+            UITheme.CreateLabel(card, cfg.Name .. "  —  " .. priceText, UDim2.new(0.7, 0, 0.5, 0), UDim2.new(0, 12, 0, 4), Color3.new(1, 1, 1), 15, true)
+            
+            -- Création d'une description dynamique pour éviter le crash (nil)
+            local descText = ""
+            if cfg.IsBelt then
+                descText = "Vitesse : " .. tostring(cfg.TransferRate or 1) .. " case(s) / tick"
+            elseif cfg.Category == "Extractors" then
+                descText = "Extrait toutes les " .. tostring(cfg.ProcessTime) .. "s"
+            elseif cfg.Category == "Refiners" or cfg.Category == "Alloys" then
+                descText = "Temps de traitement : " .. tostring(cfg.ProcessTime) .. "s"
+            elseif cfg.EnergyProduction and cfg.EnergyProduction > 0 then
+                descText = "Produit +" .. tostring(cfg.EnergyProduction) .. " Énergie"
+            elseif id == "DeliveryCenter" then
+                descText = "Vend les ressources. Gain +50% par niveau."
+            elseif id == "Storage" then
+                descText = "Stocke jusqu'à " .. tostring(cfg.InputCapacity) .. " ressources."
+            end
 
-			local buyBtn = UITheme.CreateButton(card, "Poser", UDim2.new(0.24, 0, 0.72, 0), UDim2.new(0.74, 0, 0.14, 0), Color3.fromRGB(45, 175, 95), 14)
-			buyBtn.Activated:Connect(function()
-				modalFrame.Visible = false
-				BuildController.StartPlaceMode(id)
-			end)
-		end
-	end
-	contentScroll.CanvasSize = UDim2.new(0, 0, 0, count * 66)
-	modalFrame.Visible = true
+            UITheme.CreateLabel(card, descText, UDim2.new(0.7, 0, 0.45, 0), UDim2.new(0, 12, 0.5, 0), Color3.fromRGB(185, 195, 215), 12, true)
+
+            local buyBtn = UITheme.CreateButton(card, "Poser", UDim2.new(0.24, 0, 0.72, 0), UDim2.new(0.74, 0, 0.14, 0), Color3.fromRGB(45, 175, 95), 14)
+            buyBtn.Activated:Connect(function()
+                modalFrame.Visible = false
+                BuildController.StartPlaceMode(id)
+            end)
+        end
+    end
+    contentScroll.CanvasSize = UDim2.new(0, 0, 0, count * 66)
+    modalFrame.Visible = true
 end
 
 function ModalController.OpenPlotAndPrestige()

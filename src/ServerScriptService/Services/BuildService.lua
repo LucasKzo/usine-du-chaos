@@ -49,8 +49,8 @@ function BuildService.PlaceMachine(player: Player, machineType: string, gridX: n
 		end
 	end
 
-	-- Calcul du prix (exponentiel si c'est un Centre de Livraison)
-	local price = cfg.Price
+	-- CORRECTION : Utilisation de cfg.Cost au lieu de cfg.Price
+	local price = cfg.Cost or 0
 	if machineType == "DeliveryCenter" then
 		local existingCenters = countDeliveryCenters(data.Machines)
 		price = PlotAndPrestigeConfig.GetDeliveryCenterCost(existingCenters)
@@ -80,7 +80,6 @@ function BuildService.PlaceMachine(player: Player, machineType: string, gridX: n
 	return true, cfg.Name .. " placé !"
 end
 
--- Rotation directe en 1 clic d'une machine ou d'un tapis déjà posé
 function BuildService.RotateExistingMachine(player: Player, machineId: string)
 	local data = PlayerDataService.GetData(player)
 	local plot = PlotService.GetPlotByPlayer(player)
@@ -103,7 +102,7 @@ function BuildService.RotateExistingMachine(player: Player, machineId: string)
 	return false, "Machine introuvable."
 end
 
--- Amélioration plafonnée au Niveau 3
+-- L'amélioration est désormais plafonnée au niveau 3 pour les machines (et désactivée sur les tapis)
 function BuildService.UpgradeMachine(player: Player, machineId: string)
 	local data = PlayerDataService.GetData(player)
 	local plot = PlotService.GetPlotByPlayer(player)
@@ -111,10 +110,17 @@ function BuildService.UpgradeMachine(player: Player, machineId: string)
 
 	for _, m in ipairs(data.Machines) do
 		if m.Id == machineId then
-			if m.Level >= PlotAndPrestigeConfig.MaxMachineLevel then
-				return false, "Niveau maximum (3) atteint ! Construis des machines du palier supérieur."
+			local cfg = MachineConfig.Get(m.Type)
+			local maxLevel = (cfg and cfg.MaxLevel) or 1
+			if m.Level >= maxLevel then
+				return false, "Niveau maximum (" .. tostring(maxLevel) .. ") atteint !"
 			end
-			local cost = MachineConfig.GetUpgradeCost(m.Type, m.Level)
+			
+			local cost = 0
+			if cfg and cfg.UpgradeCost and cfg.UpgradeCost[m.Level] then
+				cost = cfg.UpgradeCost[m.Level]
+			end
+			
 			if data.Credits < cost then
 				return false, "Il te faut " .. tostring(cost) .. "$ pour améliorer."
 			end
@@ -180,7 +186,8 @@ function BuildService.SellMachine(player: Player, machineId: string)
 	for idx, m in ipairs(data.Machines) do
 		if m.Id == machineId then
 			local cfg = MachineConfig.Get(m.Type)
-			local paid = m.PaidPrice or (cfg and cfg.Price or 0)
+			-- CORRECTION : Utilisation de cfg.Cost au lieu de cfg.Price pour la revente
+			local paid = m.PaidPrice or (cfg and cfg.Cost or 0)
 			local refund = math.floor(paid * 0.7)
 
 			table.remove(data.Machines, idx)
@@ -195,7 +202,6 @@ function BuildService.SellMachine(player: Player, machineId: string)
 	return false, "Machine introuvable."
 end
 
--- Agrandissement de la parcelle (6x6 -> 8x8 -> 10x10 -> 12x12 -> 16x16)
 function BuildService.UpgradePlotTier(player: Player)
 	local data = PlayerDataService.GetData(player)
 	local plot = PlotService.GetPlotByPlayer(player)
@@ -218,7 +224,6 @@ function BuildService.UpgradePlotTier(player: Player)
 	return true, "Parcelle agrandie : " .. nextCfg.Name .. " débloqué !"
 end
 
--- Système de Prestige (Rebirth)
 function BuildService.TriggerPrestige(player: Player)
 	local data = PlayerDataService.GetData(player)
 	local plot = PlotService.GetPlotByPlayer(player)

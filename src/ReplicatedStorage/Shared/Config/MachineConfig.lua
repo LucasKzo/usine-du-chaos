@@ -1,231 +1,281 @@
 -- ReplicatedStorage/Shared/Config/MachineConfig.lua
-local ConveyorConfig = require(script.Parent.ConveyorConfig)
-
 local MachineConfig = {}
 
--- Machines de production, de raffinage, d'alliage, d'énergie et de vente
 MachineConfig.Definitions = {
-	-- VENTE & ÉNERGIE
-	DeliveryCenter = {
-		Id = "DeliveryCenter", Name = "Centre de Livraison", Category = "Logistics",
-		Description = "Vend tout ce qui entre. 1er GRATUIT, puis coût exponentiel !",
-		Price = 0, ProcessTime = 0.5, InputCapacity = 40, OutputCapacity = 0,
-		EnergyConsumption = 0, EnergyProduction = 0, Color = Color3.fromRGB(45, 200, 95),
-	},
-	Storage = {
-		Id = "Storage", Name = "Silo de Stockage", Category = "Logistics",
-		Description = "Stocke jusqu'à 60 ressources avant de les pousser devant.",
-		Price = 400, ProcessTime = 0.5, InputCapacity = 60, OutputCapacity = 60,
-		EnergyConsumption = 0, EnergyProduction = 0, Color = Color3.fromRGB(140, 110, 75),
-	},
-	ThermalGenerator = {
-		Id = "ThermalGenerator", Name = "Générateur Thermique", Category = "Energy",
-		Description = "Fournit +15 Énergie à ton usine.",
-		Price = 300, ProcessTime = 1.0, InputCapacity = 0, OutputCapacity = 0,
-		EnergyConsumption = 0, EnergyProduction = 15, Color = Color3.fromRGB(245, 210, 50),
-	},
-	FusionReactor = {
-		Id = "FusionReactor", Name = "Réacteur à Fusion", Category = "Energy",
-		Description = "Fournit +120 Énergie pour les machines de haute technologie.",
-		Price = 150000, ProcessTime = 1.0, InputCapacity = 0, OutputCapacity = 0,
-		EnergyConsumption = 0, EnergyProduction = 120, Color = Color3.fromRGB(60, 230, 255),
-	},
-
-	-- ==================== PALIER I : FER ====================
+	-- ==========================================
+	-- PALIERS D'EXTRACTION (MaxLevel = 3)
+	-- ==========================================
 	IronExtractor = {
-		Id = "IronExtractor", Name = "Mine de Fer", Category = "Extractors",
-		Description = "Extrait 1 Minerai de Fer (5$) toutes les 1.5s.",
-		Price = 100, ProcessTime = 1.5, InputCapacity = 0, OutputCapacity = 10,
-		EnergyConsumption = 1, EnergyProduction = 0, Color = Color3.fromRGB(175, 115, 85),
+		Name = "Mine de Fer", Category = "Extractors",
+		InputCapacity = 0, OutputCapacity = 5,
+		ProcessTime = 1.5, EnergyConsumption = 0, EnergyProduction = 0,
 		Recipes = { { Inputs = {}, Outputs = { IronOre = 1 } } },
+		Cost = 50, MaxLevel = 3, UpgradeCost = { 150, 600 },
+		Color = Color3.fromRGB(225, 110, 40)
 	},
-	IndustrialFurnace = {
-		Id = "IndustrialFurnace", Name = "Four Industriel", Category = "Refiners",
-		Description = "Fond le Minerai de Fer en Lingot (15$) ou la Pépite d'Or en Lingot d'Or (95$).",
-		Price = 250, ProcessTime = 2.0, InputCapacity = 15, OutputCapacity = 15,
-		EnergyConsumption = 2, EnergyProduction = 0, Color = Color3.fromRGB(225, 85, 50),
-		Recipes = {
-			{ Inputs = { IronOre = 1 }, Outputs = { IronIngot = 1 } },
-			{ Inputs = { GoldOre = 1 }, Outputs = { GoldIngot = 1 } },
-		},
-	},
-	HydraulicPress = {
-		Id = "HydraulicPress", Name = "Presse Hydraulique", Category = "Refiners",
-		Description = "Compacte 2 Lingots de Fer en Bloc de Fer (45$) ou 2 Lingots d'Or en Bloc d'Or (260$).",
-		Price = 650, ProcessTime = 2.5, InputCapacity = 20, OutputCapacity = 15,
-		EnergyConsumption = 3, EnergyProduction = 0, Color = Color3.fromRGB(110, 125, 165),
-		Recipes = {
-			{ Inputs = { IronIngot = 2 }, Outputs = { IronBlock = 1 } },
-			{ Inputs = { GoldIngot = 2 }, Outputs = { GoldBlock = 1 } },
-		},
-	},
-
-	-- ==================== PALIER II : OR & ÉLECTRUM ====================
 	GoldExtractor = {
-		Id = "GoldExtractor", Name = "Mine d'Or", Category = "Extractors",
-		Description = "Extrait 1 Pépite d'Or (35$) toutes les 2.0s.",
-		Price = 2000, ProcessTime = 2.0, InputCapacity = 0, OutputCapacity = 10,
-		EnergyConsumption = 3, EnergyProduction = 0, Color = Color3.fromRGB(245, 195, 40),
+		Name = "Mine d'Or", Category = "Extractors",
+		InputCapacity = 0, OutputCapacity = 5,
+		ProcessTime = 2.0, EnergyConsumption = 5, EnergyProduction = 0,
 		Recipes = { { Inputs = {}, Outputs = { GoldOre = 1 } } },
+		Cost = 1500, MaxLevel = 3, UpgradeCost = { 4500, 15000 },
+		Color = Color3.fromRGB(245, 190, 40)
 	},
-	ChemicalBath = {
-		Id = "ChemicalBath", Name = "Bain Chimique", Category = "Refiners",
-		Description = "Purifie 1 Bloc d'Or en Or Pur 24K (650$).",
-		Price = 4500, ProcessTime = 2.5, InputCapacity = 15, OutputCapacity = 15,
-		EnergyConsumption = 5, EnergyProduction = 0, Color = Color3.fromRGB(120, 225, 130),
-		Recipes = {
-			{ Inputs = { GoldBlock = 1 }, Outputs = { PureGold24K = 1 } },
-		},
-	},
-	AlloySmelter = {
-		Id = "AlloySmelter", Name = "Fonderie d'Alliage", Category = "Alloys",
-		Description = "ALLIAGE : 1 Bloc de Fer + 1 Or Pur 24K -> 1 Lingot d'Électrum (1 800$).",
-		Price = 8500, ProcessTime = 3.0, InputCapacity = 20, OutputCapacity = 15,
-		EnergyConsumption = 8, EnergyProduction = 0, Color = Color3.fromRGB(255, 140, 40),
-		Recipes = {
-			{ Inputs = { IronBlock = 1, PureGold24K = 1 }, Outputs = { ElectrumIngot = 1 } },
-		},
-	},
-
-	-- ==================== PALIER III : DIAMANT ====================
 	DiamondDrill = {
-		Id = "DiamondDrill", Name = "Foreuse à Diamant", Category = "Extractors",
-		Description = "Extrait 1 Diamant Brut (300$) toutes les 2.5s.",
-		Price = 25000, ProcessTime = 2.5, InputCapacity = 0, OutputCapacity = 10,
-		EnergyConsumption = 10, EnergyProduction = 0, Color = Color3.fromRGB(75, 225, 255),
+		Name = "Foreuse à Diamant", Category = "Extractors",
+		InputCapacity = 0, OutputCapacity = 5,
+		ProcessTime = 3.0, EnergyConsumption = 25, EnergyProduction = 0,
 		Recipes = { { Inputs = {}, Outputs = { RawDiamond = 1 } } },
+		Cost = 25000, MaxLevel = 3, UpgradeCost = { 75000, 250000 },
+		Color = Color3.fromRGB(65, 215, 255)
 	},
-	UltrasonicRefinery = {
-		Id = "UltrasonicRefinery", Name = "Raffinerie Ultrasons", Category = "Refiners",
-		Description = "Nettoie 1 Diamant Brut en Diamant Purifié (900$).",
-		Price = 55000, ProcessTime = 2.5, InputCapacity = 15, OutputCapacity = 15,
-		EnergyConsumption = 14, EnergyProduction = 0, Color = Color3.fromRGB(70, 165, 235),
-		Recipes = {
-			{ Inputs = { RawDiamond = 1 }, Outputs = { CleanDiamond = 1 } },
-		},
+	TitaniumExcavator = {
+		Name = "Excavatrice Titane", Category = "Extractors",
+		InputCapacity = 0, OutputCapacity = 5,
+		ProcessTime = 4.0, EnergyConsumption = 120, EnergyProduction = 0,
+		Recipes = { { Inputs = {}, Outputs = { RawTitanium = 1 } } },
+		Cost = 500000, MaxLevel = 3, UpgradeCost = { 1500000, 5000000 },
+		Color = Color3.fromRGB(180, 195, 220)
 	},
-	LaserCutter = {
-		Id = "LaserCutter", Name = "Tailleuse Laser", Category = "Refiners",
-		Description = "Taille 1 Diamant Purifié en Diamant Taillé (2 800$).",
-		Price = 120000, ProcessTime = 3.0, InputCapacity = 15, OutputCapacity = 15,
-		EnergyConsumption = 20, EnergyProduction = 0, Color = Color3.fromRGB(235, 60, 140),
-		Recipes = {
-			{ Inputs = { CleanDiamond = 1 }, Outputs = { CutDiamond = 1 } },
-		},
-	},
-	RoyalJeweler = {
-		Id = "RoyalJeweler", Name = "Sertisseuse Royale", Category = "Alloys",
-		Description = "FUSION : 1 Lingot d'Électrum + 1 Diamant Taillé -> Relique Impériale (9 500$).",
-		Price = 250000, ProcessTime = 3.5, InputCapacity = 20, OutputCapacity = 15,
-		EnergyConsumption = 28, EnergyProduction = 0, Color = Color3.fromRGB(180, 80, 245),
-		Recipes = {
-			{ Inputs = { ElectrumIngot = 1, CutDiamond = 1 }, Outputs = { ImperialRelic = 1 } },
-		},
+	NuclearDrill = {
+		Name = "Foreuse Nucléaire", Category = "Extractors",
+		InputCapacity = 0, OutputCapacity = 5,
+		ProcessTime = 6.0, EnergyConsumption = 500, EnergyProduction = 0,
+		Recipes = { { Inputs = {}, Outputs = { RawUranium = 1 } } },
+		Cost = 8000000, MaxLevel = 3, UpgradeCost = { 24000000, 75000000 },
+		Color = Color3.fromRGB(85, 245, 65)
 	},
 
-	-- ==================== PALIER IV : TITANE ====================
-	TitaniumExcavator = {
-		Id = "TitaniumExcavator", Name = "Excavateur de Titane", Category = "Extractors",
-		Description = "Extrait 1 Titane Brut (2 000$) toutes les 2.5s.",
-		Price = 600000, ProcessTime = 2.5, InputCapacity = 0, OutputCapacity = 10,
-		EnergyConsumption = 30, EnergyProduction = 0, Color = Color3.fromRGB(190, 200, 215),
-		Recipes = { { Inputs = {}, Outputs = { RawTitanium = 1 } } },
-	},
-	AcidEtcher = {
-		Id = "AcidEtcher", Name = "Décapeur Acide", Category = "Refiners",
-		Description = "Transforme 1 Titane Brut en Éponge de Titane (6 500$).",
-		Price = 1400000, ProcessTime = 2.5, InputCapacity = 15, OutputCapacity = 15,
-		EnergyConsumption = 40, EnergyProduction = 0, Color = Color3.fromRGB(140, 240, 90),
-		Recipes = {
-			{ Inputs = { RawTitanium = 1 }, Outputs = { TitaniumSponge = 1 } },
-		},
+	-- ==========================================
+	-- MACHINES DE RAFFINAGE (MaxLevel = 3)
+	-- ==========================================
+	IndustrialFurnace = {
+		Name = "Four Industriel", Category = "Refiners",
+		InputCapacity = 5, OutputCapacity = 5,
+		ProcessTime = 1.5, EnergyConsumption = 0, EnergyProduction = 0,
+		Recipes = { { Inputs = { IronOre = 1 }, Outputs = { IronIngot = 1 } } },
+		Cost = 150, MaxLevel = 3, UpgradeCost = { 450, 1200 },
+		Color = Color3.fromRGB(200, 55, 40)
 	},
 	PlasmaArcFurnace = {
-		Id = "PlasmaArcFurnace", Name = "Four à Arc Plasma", Category = "Refiners",
-		Description = "Forge 1 Éponge de Titane en Plaque de Titane (20 000$).",
-		Price = 3200000, ProcessTime = 3.0, InputCapacity = 15, OutputCapacity = 15,
-		EnergyConsumption = 55, EnergyProduction = 0, Color = Color3.fromRGB(90, 120, 255),
-		Recipes = {
-			{ Inputs = { TitaniumSponge = 1 }, Outputs = { TitaniumPlate = 1 } },
-		},
+		Name = "Four à Plasma", Category = "Refiners",
+		InputCapacity = 5, OutputCapacity = 5,
+		ProcessTime = 2.0, EnergyConsumption = 10, EnergyProduction = 0,
+		Recipes = { { Inputs = { GoldOre = 1 }, Outputs = { GoldIngot = 1 } } },
+		Cost = 4500, MaxLevel = 3, UpgradeCost = { 12000, 35000 },
+		Color = Color3.fromRGB(70, 95, 245)
 	},
-	SynthesisChamber = {
-		Id = "SynthesisChamber", Name = "Chambre de Synthèse", Category = "Alloys",
-		Description = "ALLIAGE : 1 Diamant Taillé + 1 Plaque de Titane -> Nanocomposite (75 000$).",
-		Price = 7500000, ProcessTime = 3.5, InputCapacity = 20, OutputCapacity = 15,
-		EnergyConsumption = 75, EnergyProduction = 0, Color = Color3.fromRGB(50, 225, 195),
-		Recipes = {
-			{ Inputs = { CutDiamond = 1, TitaniumPlate = 1 }, Outputs = { Nanocomposite = 1 } },
-		},
+	HydraulicPress = {
+		Name = "Presse Hydraulique", Category = "Refiners",
+		InputCapacity = 5, OutputCapacity = 5,
+		ProcessTime = 2.0, EnergyConsumption = 0, EnergyProduction = 0,
+		Recipes = { { Inputs = { IronIngot = 2 }, Outputs = { IronBlock = 1 } } },
+		Cost = 500, MaxLevel = 3, UpgradeCost = { 1500, 4500 },
+		Color = Color3.fromRGB(45, 115, 210)
 	},
-
-	-- ==================== PALIER V : URANIUM ====================
-	NuclearDrill = {
-		Id = "NuclearDrill", Name = "Foreuse Nucléaire", Category = "Extractors",
-		Description = "Extrait 1 Uranium Brut (15 000$) toutes les 3.0s.",
-		Price = 25000000, ProcessTime = 3.0, InputCapacity = 0, OutputCapacity = 10,
-		EnergyConsumption = 90, EnergyProduction = 0, Color = Color3.fromRGB(90, 255, 70),
-		Recipes = { { Inputs = {}, Outputs = { RawUranium = 1 } } },
+	ChemicalBath = {
+		Name = "Bain Chimique", Category = "Refiners",
+		InputCapacity = 5, OutputCapacity = 5,
+		ProcessTime = 2.5, EnergyConsumption = 15, EnergyProduction = 0,
+		Recipes = { { Inputs = { GoldIngot = 2 }, Outputs = { GoldBlock = 1 } } },
+		Cost = 12000, MaxLevel = 3, UpgradeCost = { 35000, 95000 },
+		Color = Color3.fromRGB(115, 230, 115)
+	},
+	UltrasonicRefinery = {
+		Name = "Purificateur Ultrasons", Category = "Refiners",
+		InputCapacity = 5, OutputCapacity = 5,
+		ProcessTime = 3.0, EnergyConsumption = 40, EnergyProduction = 0,
+		Recipes = { { Inputs = { RawDiamond = 1 }, Outputs = { CleanDiamond = 1 } } },
+		Cost = 85000, MaxLevel = 3, UpgradeCost = { 250000, 800000 },
+		Color = Color3.fromRGB(70, 165, 240)
+	},
+	LaserCutter = {
+		Name = "Tailleuse Laser", Category = "Refiners",
+		InputCapacity = 5, OutputCapacity = 5,
+		ProcessTime = 3.5, EnergyConsumption = 65, EnergyProduction = 0,
+		Recipes = { { Inputs = { CleanDiamond = 1 }, Outputs = { CutDiamond = 1 } } },
+		Cost = 280000, MaxLevel = 3, UpgradeCost = { 850000, 2500000 },
+		Color = Color3.fromRGB(230, 45, 130)
+	},
+	AcidEtcher = {
+		Name = "Décapeur Acide", Category = "Refiners",
+		InputCapacity = 5, OutputCapacity = 5,
+		ProcessTime = 4.0, EnergyConsumption = 150, EnergyProduction = 0,
+		Recipes = { { Inputs = { RawTitanium = 2 }, Outputs = { TitaniumSponge = 1 } } },
+		Cost = 1800000, MaxLevel = 3, UpgradeCost = { 5500000, 16000000 },
+		Color = Color3.fromRGB(140, 245, 75)
 	},
 	GasCentrifuge = {
-		Id = "GasCentrifuge", Name = "Centrifugeuse Gazeuse", Category = "Refiners",
-		Description = "Enrichit 1 Uranium Brut en Uranium Enrichi (50 000$).",
-		Price = 60000000, ProcessTime = 3.0, InputCapacity = 15, OutputCapacity = 15,
-		EnergyConsumption = 120, EnergyProduction = 0, Color = Color3.fromRGB(165, 255, 70),
-		Recipes = {
-			{ Inputs = { RawUranium = 1 }, Outputs = { EnrichedUranium = 1 } },
-		},
+		Name = "Centrifugeuse Gaz", Category = "Refiners",
+		InputCapacity = 5, OutputCapacity = 5,
+		ProcessTime = 5.0, EnergyConsumption = 650, EnergyProduction = 0,
+		Recipes = { { Inputs = { RawUranium = 2 }, Outputs = { EnrichedUranium = 1 } } },
+		Cost = 25000000, MaxLevel = 3, UpgradeCost = { 75000000, 225000000 },
+		Color = Color3.fromRGB(165, 255, 65)
 	},
 	CryoStabilizer = {
-		Id = "CryoStabilizer", Name = "Cryo-Stabilisateur", Category = "Refiners",
-		Description = "Condense 1 Uranium Enrichi en Cellule à Fusion (160 000$).",
-		Price = 140000000, ProcessTime = 3.5, InputCapacity = 15, OutputCapacity = 15,
-		EnergyConsumption = 160, EnergyProduction = 0, Color = Color3.fromRGB(80, 200, 255),
-		Recipes = {
-			{ Inputs = { EnrichedUranium = 1 }, Outputs = { FusionCell = 1 } },
-		},
+		Name = "Stabilisateur Cryo", Category = "Refiners",
+		InputCapacity = 5, OutputCapacity = 5,
+		ProcessTime = 6.0, EnergyConsumption = 1200, EnergyProduction = 0,
+		Recipes = { { Inputs = { EnrichedUranium = 2 }, Outputs = { FusionCell = 1 } } },
+		Cost = 85000000, MaxLevel = 3, UpgradeCost = { 250000000, 800000000 },
+		Color = Color3.fromRGB(75, 205, 255)
+	},
+
+	-- ==========================================
+	-- MACHINES D'ALLIAGE (MaxLevel = 3)
+	-- ==========================================
+	AlloySmelter = {
+		Name = "Fonderie d'Alliage", Category = "Alloys",
+		InputCapacity = 10, OutputCapacity = 5,
+		ProcessTime = 3.0, EnergyConsumption = 35, EnergyProduction = 0,
+		Recipes = { { Inputs = { IronBlock = 1, PureGold24K = 1 }, Outputs = { ElectrumIngot = 1 } } },
+		Cost = 65000, MaxLevel = 3, UpgradeCost = { 180000, 500000 },
+		Color = Color3.fromRGB(255, 140, 40)
+	},
+	RoyalJeweler = {
+		Name = "Joaillerie Impériale", Category = "Alloys",
+		InputCapacity = 10, OutputCapacity = 5,
+		ProcessTime = 4.5, EnergyConsumption = 180, EnergyProduction = 0,
+		Recipes = { { Inputs = { ElectrumIngot = 1, CutDiamond = 1 }, Outputs = { ImperialRelic = 1 } } },
+		Cost = 1200000, MaxLevel = 3, UpgradeCost = { 3500000, 10000000 },
+		Color = Color3.fromRGB(185, 75, 245)
+	},
+	SynthesisChamber = {
+		Name = "Chambre de Synthèse", Category = "Alloys",
+		InputCapacity = 10, OutputCapacity = 5,
+		ProcessTime = 5.5, EnergyConsumption = 450, EnergyProduction = 0,
+		Recipes = { { Inputs = { TitaniumSponge = 1, CutDiamond = 1 }, Outputs = { Nanocomposite = 1 } } },
+		Cost = 9500000, MaxLevel = 3, UpgradeCost = { 28000000, 85000000 },
+		Color = Color3.fromRGB(50, 230, 200)
 	},
 	QuantumAssembler = {
-		Id = "QuantumAssembler", Name = "Assembleur Quantique", Category = "Alloys",
-		Description = "FUSION ULTIME : 1 Nanocomposite + 1 Cellule à Fusion -> Cœur d'Antimatière (650 000$).",
-		Price = 350000000, ProcessTime = 4.0, InputCapacity = 20, OutputCapacity = 15,
-		EnergyConsumption = 220, EnergyProduction = 0, Color = Color3.fromRGB(255, 65, 200),
-		Recipes = {
-			{ Inputs = { Nanocomposite = 1, FusionCell = 1 }, Outputs = { AntimatterCore = 1 } },
-		},
+		Name = "Assembleur Quantique", Category = "Alloys",
+		InputCapacity = 10, OutputCapacity = 5,
+		ProcessTime = 8.0, EnergyConsumption = 2500, EnergyProduction = 0,
+		Recipes = { { Inputs = { Nanocomposite = 1, FusionCell = 1 }, Outputs = { AntimatterCore = 1 } } },
+		Cost = 350000000, MaxLevel = 3, UpgradeCost = { 950000000, 2800000000 },
+		Color = Color3.fromRGB(255, 65, 200)
+	},
+
+	-- ==========================================
+	-- ENERGIE & VENTE (MaxLevel = 3)
+	-- ==========================================
+	ThermalGenerator = {
+		Name = "Générateur Thermique", Category = "Energy",
+		InputCapacity = 0, OutputCapacity = 0,
+		ProcessTime = 1.0, EnergyConsumption = 0, EnergyProduction = 25,
+		Cost = 2500, MaxLevel = 3, UpgradeCost = { 7500, 22000 },
+		Color = Color3.fromRGB(250, 210, 45)
+	},
+	FusionReactor = {
+		Name = "Réacteur à Fusion", Category = "Energy",
+		InputCapacity = 0, OutputCapacity = 0,
+		ProcessTime = 1.0, EnergyConsumption = 0, EnergyProduction = 1500,
+		Cost = 4500000, MaxLevel = 3, UpgradeCost = { 15000000, 45000000 },
+		Color = Color3.fromRGB(55, 230, 255)
+	},
+	DeliveryCenter = {
+		Name = "Centre de Livraison", Category = "Specials",
+		InputCapacity = 50, OutputCapacity = 0,
+		ProcessTime = 1.0, EnergyConsumption = 0, EnergyProduction = 0,
+		Cost = 0, MaxLevel = 3, UpgradeCost = { 15000, 75000 },
+		Color = Color3.fromRGB(45, 240, 115)
+	},
+	Storage = {
+		Name = "Silo de Stockage", Category = "Specials",
+		InputCapacity = 100, OutputCapacity = 100,
+		ProcessTime = 1.0, EnergyConsumption = 0, EnergyProduction = 0,
+		Cost = 1500, MaxLevel = 3, UpgradeCost = { 4500, 12000 },
+		Color = Color3.fromRGB(140, 105, 70)
+	},
+
+	-- ==========================================
+	-- TAPIS ROULANTS (MaxLevel = 1 UNIQUEMENT)
+	-- ==========================================
+	Belt1_Straight = {
+		Name = "Tapis Basique Droit", Category = "Belts", IsBelt = true,
+		InputCapacity = 1, OutputCapacity = 1, TransferRate = 1,
+		EnergyConsumption = 0, EnergyProduction = 0,
+		Cost = 50, MaxLevel = 1, UpgradeCost = {}, Color = Color3.fromRGB(80, 85, 95), TurnType = "Straight"
+	},
+	Belt1_Left = {
+		Name = "Tapis Basique Gauche", Category = "Belts", IsBelt = true,
+		InputCapacity = 1, OutputCapacity = 1, TransferRate = 1,
+		EnergyConsumption = 0, EnergyProduction = 0,
+		Cost = 50, MaxLevel = 1, UpgradeCost = {}, Color = Color3.fromRGB(80, 85, 95), TurnType = "Left"
+	},
+	Belt1_Right = {
+		Name = "Tapis Basique Droite", Category = "Belts", IsBelt = true,
+		InputCapacity = 1, OutputCapacity = 1, TransferRate = 1,
+		EnergyConsumption = 0, EnergyProduction = 0,
+		Cost = 50, MaxLevel = 1, UpgradeCost = {}, Color = Color3.fromRGB(80, 85, 95), TurnType = "Right"
+	},
+
+	Belt2_Straight = {
+		Name = "Tapis Rapide Droit", Category = "Belts", IsBelt = true,
+		InputCapacity = 1, OutputCapacity = 1, TransferRate = 2,
+		EnergyConsumption = 0, EnergyProduction = 0,
+		Cost = 250, MaxLevel = 1, UpgradeCost = {}, Color = Color3.fromRGB(50, 130, 225), TurnType = "Straight"
+	},
+	Belt2_Left = {
+		Name = "Tapis Rapide Gauche", Category = "Belts", IsBelt = true,
+		InputCapacity = 1, OutputCapacity = 1, TransferRate = 2,
+		EnergyConsumption = 0, EnergyProduction = 0,
+		Cost = 250, MaxLevel = 1, UpgradeCost = {}, Color = Color3.fromRGB(50, 130, 225), TurnType = "Left"
+	},
+	Belt2_Right = {
+		Name = "Tapis Rapide Droite", Category = "Belts", IsBelt = true,
+		InputCapacity = 1, OutputCapacity = 1, TransferRate = 2,
+		EnergyConsumption = 0, EnergyProduction = 0,
+		Cost = 250, MaxLevel = 1, UpgradeCost = {}, Color = Color3.fromRGB(50, 130, 225), TurnType = "Right"
+	},
+
+	Belt3_Straight = {
+		Name = "Tapis Express Droit", Category = "Belts", IsBelt = true,
+		InputCapacity = 1, OutputCapacity = 1, TransferRate = 3,
+		EnergyConsumption = 0, EnergyProduction = 0,
+		Cost = 1500, MaxLevel = 1, UpgradeCost = {}, Color = Color3.fromRGB(240, 185, 45), TurnType = "Straight"
+	},
+	Belt3_Left = {
+		Name = "Tapis Express Gauche", Category = "Belts", IsBelt = true,
+		InputCapacity = 1, OutputCapacity = 1, TransferRate = 3,
+		EnergyConsumption = 0, EnergyProduction = 0,
+		Cost = 1500, MaxLevel = 1, UpgradeCost = {}, Color = Color3.fromRGB(240, 185, 45), TurnType = "Left"
+	},
+	Belt3_Right = {
+		Name = "Tapis Express Droite", Category = "Belts", IsBelt = true,
+		InputCapacity = 1, OutputCapacity = 1, TransferRate = 3,
+		EnergyConsumption = 0, EnergyProduction = 0,
+		Cost = 1500, MaxLevel = 1, UpgradeCost = {}, Color = Color3.fromRGB(240, 185, 45), TurnType = "Right"
+	},
+
+	Belt4_Straight = {
+		Name = "Tapis Quantique Droit", Category = "Belts", IsBelt = true,
+		InputCapacity = 1, OutputCapacity = 1, TransferRate = 5,
+		EnergyConsumption = 0, EnergyProduction = 0,
+		Cost = 12000, MaxLevel = 1, UpgradeCost = {}, Color = Color3.fromRGB(165, 65, 245), TurnType = "Straight"
+	},
+
+	-- ==========================================
+	-- JONCTIONS ET AIGUILLAGES (MaxLevel = 1)
+	-- ==========================================
+	Merger = {
+		Name = "Jonction 3-en-1", Category = "Belts", IsBelt = true,
+		InputCapacity = 1, OutputCapacity = 1, TransferRate = 2,
+		EnergyConsumption = 0, EnergyProduction = 0,
+		Cost = 350, MaxLevel = 1, UpgradeCost = {}, Color = Color3.fromRGB(55, 190, 145), TurnType = "Straight"
+	},
+	Sorter = {
+		Name = "Trieur Gauche/Droite", Category = "Belts", IsBelt = true,
+		InputCapacity = 1, OutputCapacity = 1, TransferRate = 2,
+		EnergyConsumption = 0, EnergyProduction = 0,
+		Cost = 850, MaxLevel = 1, UpgradeCost = {}, Color = Color3.fromRGB(45, 200, 230), TurnType = "Sorter"
 	},
 }
 
--- Fusionner les tapis dans l'accès global pour simplifier la recherche par ID
-for beltId, beltData in pairs(ConveyorConfig.Belts) do
-	MachineConfig.Definitions[beltId] = {
-		Id = beltId,
-		Name = beltData.Name,
-		Category = "Belts",
-		Description = beltData.Description,
-		Price = beltData.Price,
-		ProcessTime = 0.5,
-		InputCapacity = beltData.Capacity,
-		OutputCapacity = beltData.Capacity,
-		TransferRate = beltData.TransferRate,
-		TurnType = beltData.TurnType,
-		IsBelt = true,
-		EnergyConsumption = 0,
-		EnergyProduction = 0,
-		Color = beltData.Color,
-	}
-end
-
-function MachineConfig.Get(id: string)
-	return MachineConfig.Definitions[id]
-end
-
--- Coût d'amélioration (plafonné au niveau 3)
-function MachineConfig.GetUpgradeCost(id: string, currentLevel: number): number
-	local cfg = MachineConfig.Definitions[id]
-	if not cfg then return 999999999 end
-	local base = math.max(100, cfg.Price)
-	return math.floor(base * (2.5 ^ currentLevel))
+function MachineConfig.Get(typeId: string)
+	return MachineConfig.Definitions[typeId]
 end
 
 return MachineConfig

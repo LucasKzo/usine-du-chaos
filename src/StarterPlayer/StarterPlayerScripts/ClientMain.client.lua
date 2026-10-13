@@ -18,12 +18,19 @@ visualsFolder.Name = "ClientVisualResources"
 visualsFolder.Parent = Workspace
 
 local observedMachines = {}
-local waitingVisualOnTile = {} -- Garde le modèle 3D posé sur le tapis tant que le tapis contient la ressource
+local waitingVisualOnTile = {}
+local activeTweens = {}
 
 local function clearTileVisual(tileModel: Model)
 	local existing = waitingVisualOnTile[tileModel]
 	if existing then
 		if existing.Model and existing.Model.Parent then
+			if activeTweens[existing.Model] then
+				activeTweens[existing.Model].Tween:Cancel()
+				activeTweens[existing.Model].Conn:Disconnect()
+				activeTweens[existing.Model].Proxy:Destroy()
+				activeTweens[existing.Model] = nil
+			end
 			existing.Model:Destroy()
 		end
 		waitingVisualOnTile[tileModel] = nil
@@ -34,7 +41,6 @@ local function hookMachineVisuals(machineModel: Model)
 	if observedMachines[machineModel] then return end
 	observedMachines[machineModel] = true
 
-	-- Si le tapis devient vide (ou est supprimé), on nettoie le visuel posé dessus
 	machineModel:GetAttributeChangedSignal("HeldItem"):Connect(function()
 		local held = machineModel:GetAttribute("HeldItem")
 		if not held or held == "" then
@@ -43,9 +49,7 @@ local function hookMachineVisuals(machineModel: Model)
 	end)
 
 	machineModel.AncestryChanged:Connect(function(_, parent)
-		if not parent then
-			clearTileVisual(machineModel)
-		end
+		if not parent then clearTileVisual(machineModel) end
 	end)
 
 	machineModel:GetAttributeChangedSignal("TransferSeq"):Connect(function()
@@ -57,16 +61,32 @@ local function hookMachineVisuals(machineModel: Model)
 		local targetModel = machinesFolder and machinesFolder:FindFirstChild(targetId)
 		if not machineModel.PrimaryPart or not targetModel or not targetModel.PrimaryPart then return end
 
-		-- Réutilise le modèle 3D qui attendait sur le tapis (zéro clignotement, même après un bouchon !)
 		local itemVisual = nil
 		local existing = waitingVisualOnTile[machineModel]
-		if existing and existing.ResId == resId and existing.Model and existing.Model.Parent then
+		
+		-- Récupération instantanée du modèle sans clignotement
+		if existing and existing.Model and existing.Model.Parent then
 			itemVisual = existing.Model
 			waitingVisualOnTile[machineModel] = nil
 		else
 			clearTileVisual(machineModel)
 			itemVisual = ModelFactory.CreateResourceModel(resId)
 			itemVisual.Parent = visualsFolder
+		end
+
+		local targetType = targetModel:GetAttribute("MachineType")
+		local targetCfg = targetType and MachineConfig.Get(targetType)
+		
+		if targetCfg and targetCfg.IsBelt then
+			clearTileVisual(targetModel)
+			waitingVisualOnTile[targetModel] = { ResId = resId, Model = itemVisual }
+		end
+
+		if activeTweens[itemVisual] then
+			activeTweens[itemVisual].Tween:Cancel()
+			activeTweens[itemVisual].Conn:Disconnect()
+			activeTweens[itemVisual].Proxy:Destroy()
+			activeTweens[itemVisual] = nil
 		end
 
 		local startPos = machineModel.PrimaryPart.Position + Vector3.new(0, 0.75, 0)
@@ -76,34 +96,42 @@ local function hookMachineVisuals(machineModel: Model)
 
 		local startCF = CFrame.new(startPos) * rotCF
 		local endCF = CFrame.new(endPos) * rotCF
-		ModelFactory.PivotMachineModel(itemVisual, startCF)
+		
+		if not existing then
+			ModelFactory.PivotMachineModel(itemVisual, startCF)
+		end
 
 		local proxy = Instance.new("CFrameValue")
-		proxy.Value = startCF
+		-- On part de la position ACTUELLE de l'objet pour un virage parfait sans à-coups
+		proxy.Value = (itemVisual.PrimaryPart and itemVisual.PrimaryPart.CFrame) or startCF
+		
 		local conn = proxy.Changed:Connect(function(newCF)
 			if itemVisual.Parent then
 				ModelFactory.PivotMachineModel(itemVisual, newCF)
 			end
 		end)
 
-		local tween = TweenService:Create(proxy, TweenInfo.new(0.48, Enum.EasingStyle.Linear), {
-			Value = endCF,
-		})
+		-- Vitesse visuelle ajustée : un tapis Express ira 3x plus vite qu'un tapis basique !
+		-- Le +0.15 sert de "colle" anti-lag pour que l'objet ne s'arrête jamais en attendant le tick serveur suivant.
+		local machineType = machineModel:GetAttribute("MachineType")
+		local currentCfg = machineType and MachineConfig.Get(machineType)
+		local tRate = (currentCfg and currentCfg.IsBelt and currentCfg.TransferRate) or 1
+		local tweenTime = (0.25 / tRate) + 0.15
+
+		local tween = TweenService:Create(proxy, TweenInfo.new(tweenTime, Enum.EasingStyle.Linear), { Value = endCF })
+		
+		activeTweens[itemVisual] = { Tween = tween, Conn = conn, Proxy = proxy }
 		tween:Play()
+		
 		tween.Completed:Connect(function()
+			if activeTweens[itemVisual] and activeTweens[itemVisual].Tween == tween then
+				activeTweens[itemVisual] = nil
+			end
 			conn:Disconnect()
 			proxy:Destroy()
-
-			local targetType = targetModel:GetAttribute("MachineType")
-			local targetCfg = targetType and MachineConfig.Get(targetType)
-			-- Si la cible est un tapis, le minerai RESTE visible dessus tant qu'il n'est pas entré dans le four !
-			if targetCfg and targetCfg.IsBelt then
-				clearTileVisual(targetModel)
-				waitingVisualOnTile[targetModel] = { ResId = resId, Model = itemVisual }
-			else
-				if itemVisual.Parent then
-					itemVisual:Destroy()
-				end
+			
+			if not (targetCfg and targetCfg.IsBelt) then
+				if itemVisual.Parent then itemVisual:Destroy() end
 			end
 		end)
 	end)
