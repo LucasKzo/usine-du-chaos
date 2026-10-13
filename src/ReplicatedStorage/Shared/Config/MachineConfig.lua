@@ -51,35 +51,40 @@ MachineConfig.Definitions = {
 	-- ==========================================
 	IndustrialFurnace = {
 		Name = "Four Industriel", Category = "Refiners",
-		InputCapacity = 5, OutputCapacity = 5,
+		InputCapacity = 6, OutputCapacity = 5,
 		ProcessTime = 1.5, EnergyConsumption = 0, EnergyProduction = 0,
-		Recipes = { { Inputs = { IronOre = 1 }, Outputs = { IronIngot = 1 } } },
+		Recipes = {
+			{ Inputs = { IronOre = 1 }, Outputs = { IronIngot = 1 } },
+			{ Inputs = { GoldOre = 1 }, Outputs = { GoldIngot = 1 } },
+		},
 		Cost = 150, MaxLevel = 3, UpgradeCost = { 450, 1200 },
-		Color = Color3.fromRGB(200, 55, 40)
-	},
-	PlasmaArcFurnace = {
-		Name = "Four à Plasma", Category = "Refiners",
-		InputCapacity = 5, OutputCapacity = 5,
-		ProcessTime = 2.0, EnergyConsumption = 10, EnergyProduction = 0,
-		Recipes = { { Inputs = { GoldOre = 1 }, Outputs = { GoldIngot = 1 } } },
-		Cost = 4500, MaxLevel = 3, UpgradeCost = { 12000, 35000 },
-		Color = Color3.fromRGB(70, 95, 245)
+		Color = Color3.fromRGB(200, 55, 40),
+		Description = "Fond le Minerai de Fer ou d'Or en Lingots."
 	},
 	HydraulicPress = {
 		Name = "Presse Hydraulique", Category = "Refiners",
-		InputCapacity = 5, OutputCapacity = 5,
+		InputCapacity = 6, OutputCapacity = 5,
 		ProcessTime = 2.0, EnergyConsumption = 0, EnergyProduction = 0,
-		Recipes = { { Inputs = { IronIngot = 2 }, Outputs = { IronBlock = 1 } } },
+		Recipes = {
+			{ Inputs = { IronIngot = 2 }, Outputs = { IronBlock = 1 } },
+			{ Inputs = { GoldIngot = 2 }, Outputs = { GoldBlock = 1 } },
+		},
 		Cost = 500, MaxLevel = 3, UpgradeCost = { 1500, 4500 },
-		Color = Color3.fromRGB(45, 115, 210)
+		Color = Color3.fromRGB(45, 115, 210),
+		Description = "Compresse 2 Lingots (Fer ou Or) en 1 Bloc."
 	},
 	ChemicalBath = {
 		Name = "Bain Chimique", Category = "Refiners",
-		InputCapacity = 5, OutputCapacity = 5,
+		InputCapacity = 6, OutputCapacity = 5,
 		ProcessTime = 2.5, EnergyConsumption = 15, EnergyProduction = 0,
-		Recipes = { { Inputs = { GoldIngot = 2 }, Outputs = { GoldBlock = 1 } } },
+		Recipes = {
+			{ Inputs = { GoldIngot = 1 }, Outputs = { PureGold24K = 1 } },
+			{ Inputs = { GoldBlock = 1 }, Outputs = { PureGold24K = 2 } },
+			{ Inputs = { GoldOre = 1 }, Outputs = { GoldIngot = 1 } },
+		},
 		Cost = 12000, MaxLevel = 3, UpgradeCost = { 35000, 95000 },
-		Color = Color3.fromRGB(115, 230, 115)
+		Color = Color3.fromRGB(115, 230, 115),
+		Description = "Raffine les Lingots/Blocs d'Or en Or Pur 24K."
 	},
 	UltrasonicRefinery = {
 		Name = "Purificateur Ultrasons", Category = "Refiners",
@@ -87,7 +92,8 @@ MachineConfig.Definitions = {
 		ProcessTime = 3.0, EnergyConsumption = 40, EnergyProduction = 0,
 		Recipes = { { Inputs = { RawDiamond = 1 }, Outputs = { CleanDiamond = 1 } } },
 		Cost = 85000, MaxLevel = 3, UpgradeCost = { 250000, 800000 },
-		Color = Color3.fromRGB(70, 165, 240)
+		Color = Color3.fromRGB(70, 165, 240),
+		Description = "Nettoie le Diamant Brut en Diamant Pur."
 	},
 	LaserCutter = {
 		Name = "Tailleuse Laser", Category = "Refiners",
@@ -95,31 +101,48 @@ MachineConfig.Definitions = {
 		ProcessTime = 3.5, EnergyConsumption = 65, EnergyProduction = 0,
 		Recipes = { { Inputs = { CleanDiamond = 1 }, Outputs = { CutDiamond = 1 } } },
 		Cost = 280000, MaxLevel = 3, UpgradeCost = { 850000, 2500000 },
-		Color = Color3.fromRGB(230, 45, 130)
+		Color = Color3.fromRGB(230, 45, 130),
+		Description = "Taille un Diamant Pur en Diamant Taillé."
 	},
 	AcidEtcher = {
 		Name = "Décapeur Acide", Category = "Refiners",
-		InputCapacity = 5, OutputCapacity = 5,
+		InputCapacity = 6, OutputCapacity = 5,
 		ProcessTime = 4.0, EnergyConsumption = 150, EnergyProduction = 0,
 		Recipes = { { Inputs = { RawTitanium = 2 }, Outputs = { TitaniumSponge = 1 } } },
 		Cost = 1800000, MaxLevel = 3, UpgradeCost = { 5500000, 16000000 },
-		Color = Color3.fromRGB(140, 245, 75)
+		Color = Color3.fromRGB(140, 245, 75),
+		Description = "Transforme 2 Titanes Bruts en Éponge de Titane."
+	},
+	PlasmaArcFurnace = {
+		Name = "Four à Plasma", Category = "Refiners",
+		InputCapacity = 6, OutputCapacity = 5,
+		ProcessTime = 2.0, EnergyConsumption = 10, EnergyProduction = 0,
+		Recipes = {
+			{ Inputs = { TitaniumSponge = 1 }, Outputs = { TitaniumPlate = 1 } },
+			{ Inputs = { GoldOre = 1 }, Outputs = { GoldIngot = 1 } },
+			{ Inputs = { IronOre = 1 }, Outputs = { IronIngot = 1 } },
+		},
+		Cost = 4500, MaxLevel = 3, UpgradeCost = { 12000, 35000 },
+		Color = Color3.fromRGB(70, 95, 245),
+		Description = "Fond l'Éponge de Titane en Plaque (ou le Minerai d'Or/Fer)."
 	},
 	GasCentrifuge = {
 		Name = "Centrifugeuse Gaz", Category = "Refiners",
-		InputCapacity = 5, OutputCapacity = 5,
+		InputCapacity = 6, OutputCapacity = 5,
 		ProcessTime = 5.0, EnergyConsumption = 650, EnergyProduction = 0,
 		Recipes = { { Inputs = { RawUranium = 2 }, Outputs = { EnrichedUranium = 1 } } },
 		Cost = 25000000, MaxLevel = 3, UpgradeCost = { 75000000, 225000000 },
-		Color = Color3.fromRGB(165, 255, 65)
+		Color = Color3.fromRGB(165, 255, 65),
+		Description = "Enrichit 2 Uraniums Bruts en Uranium Enrichi."
 	},
 	CryoStabilizer = {
 		Name = "Stabilisateur Cryo", Category = "Refiners",
-		InputCapacity = 5, OutputCapacity = 5,
+		InputCapacity = 6, OutputCapacity = 5,
 		ProcessTime = 6.0, EnergyConsumption = 1200, EnergyProduction = 0,
 		Recipes = { { Inputs = { EnrichedUranium = 2 }, Outputs = { FusionCell = 1 } } },
 		Cost = 85000000, MaxLevel = 3, UpgradeCost = { 250000000, 800000000 },
-		Color = Color3.fromRGB(75, 205, 255)
+		Color = Color3.fromRGB(75, 205, 255),
+		Description = "Condense 2 Uraniums Enrichis en Cellule de Fusion."
 	},
 
 	-- ==========================================
@@ -129,25 +152,39 @@ MachineConfig.Definitions = {
 		Name = "Fonderie d'Alliage", Category = "Alloys",
 		InputCapacity = 10, OutputCapacity = 5,
 		ProcessTime = 3.0, EnergyConsumption = 35, EnergyProduction = 0,
-		Recipes = { { Inputs = { IronBlock = 1, PureGold24K = 1 }, Outputs = { ElectrumIngot = 1 } } },
+		Recipes = {
+			{ Inputs = { IronBlock = 1, PureGold24K = 1 }, Outputs = { ElectrumIngot = 1 } },
+			{ Inputs = { IronBlock = 1, GoldBlock = 1 }, Outputs = { ElectrumIngot = 1 } },
+			{ Inputs = { IronIngot = 1, PureGold24K = 1 }, Outputs = { ElectrumIngot = 1 } },
+			{ Inputs = { IronIngot = 1, GoldIngot = 1 }, Outputs = { ElectrumIngot = 1 } },
+		},
 		Cost = 65000, MaxLevel = 3, UpgradeCost = { 180000, 500000 },
-		Color = Color3.fromRGB(255, 140, 40)
+		Color = Color3.fromRGB(255, 140, 40),
+		Description = "Fusionne le Fer (Bloc/Lingot) et l'Or (24K/Bloc/Lingot) en Électrum."
 	},
 	RoyalJeweler = {
 		Name = "Joaillerie Impériale", Category = "Alloys",
 		InputCapacity = 10, OutputCapacity = 5,
 		ProcessTime = 4.5, EnergyConsumption = 180, EnergyProduction = 0,
-		Recipes = { { Inputs = { ElectrumIngot = 1, CutDiamond = 1 }, Outputs = { ImperialRelic = 1 } } },
+		Recipes = {
+			{ Inputs = { ElectrumIngot = 1, CutDiamond = 1 }, Outputs = { ImperialRelic = 1 } },
+			{ Inputs = { PureGold24K = 1, CutDiamond = 1 }, Outputs = { ImperialRelic = 1 } },
+		},
 		Cost = 1200000, MaxLevel = 3, UpgradeCost = { 3500000, 10000000 },
-		Color = Color3.fromRGB(185, 75, 245)
+		Color = Color3.fromRGB(185, 75, 245),
+		Description = "Assemble l'Électrum et le Diamant Taillé en Relique Impériale."
 	},
 	SynthesisChamber = {
 		Name = "Chambre de Synthèse", Category = "Alloys",
 		InputCapacity = 10, OutputCapacity = 5,
 		ProcessTime = 5.5, EnergyConsumption = 450, EnergyProduction = 0,
-		Recipes = { { Inputs = { TitaniumSponge = 1, CutDiamond = 1 }, Outputs = { Nanocomposite = 1 } } },
+		Recipes = {
+			{ Inputs = { TitaniumPlate = 1, CutDiamond = 1 }, Outputs = { Nanocomposite = 1 } },
+			{ Inputs = { TitaniumSponge = 1, CutDiamond = 1 }, Outputs = { Nanocomposite = 1 } },
+		},
 		Cost = 9500000, MaxLevel = 3, UpgradeCost = { 28000000, 85000000 },
-		Color = Color3.fromRGB(50, 230, 200)
+		Color = Color3.fromRGB(50, 230, 200),
+		Description = "Combine Titane (Plaque/Éponge) et Diamant Taillé en Nanocomposite."
 	},
 	QuantumAssembler = {
 		Name = "Assembleur Quantique", Category = "Alloys",
@@ -155,7 +192,8 @@ MachineConfig.Definitions = {
 		ProcessTime = 8.0, EnergyConsumption = 2500, EnergyProduction = 0,
 		Recipes = { { Inputs = { Nanocomposite = 1, FusionCell = 1 }, Outputs = { AntimatterCore = 1 } } },
 		Cost = 350000000, MaxLevel = 3, UpgradeCost = { 950000000, 2800000000 },
-		Color = Color3.fromRGB(255, 65, 200)
+		Color = Color3.fromRGB(255, 65, 200),
+		Description = "Fusionne Nanocomposite et Cellule de Fusion en Cœur d'Antimatière."
 	},
 
 	-- ==========================================
@@ -271,7 +309,6 @@ MachineConfig.Definitions = {
 	},
 }
 
--- Synchronisation automatique des champs Price et Description pour tous les contrôleurs UI
 for id, def in pairs(MachineConfig.Definitions) do
 	def.Price = def.Cost or 0
 	if not def.Description then
@@ -295,7 +332,6 @@ function MachineConfig.Get(typeId: string)
 	return MachineConfig.Definitions[typeId]
 end
 
--- Indispensable pour HUDController lorsqu'on clique sur une machine posée !
 function MachineConfig.GetUpgradeCost(typeId: string, currentLevel: number): number
 	local cfg = MachineConfig.Definitions[typeId]
 	if not cfg or cfg.IsBelt then

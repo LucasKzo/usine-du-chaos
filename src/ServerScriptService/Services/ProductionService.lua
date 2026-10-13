@@ -14,7 +14,6 @@ local ProductionService = {}
 ProductionService.ActiveWorldEvent = nil
 ProductionService.GlobalBlackoutUntil = 0
 
--- TICK PLUS RAPIDE : les minerais avancent sans latence
 local TICK_INTERVAL = 0.25
 
 local function getDirectionOffset(rotation: number): (number, number)
@@ -38,6 +37,34 @@ local function getFirstItem(buf: { [string]: number }): string
 	return ""
 end
 
+-- Vérifie combien d'exemplaires de `resId` une machine cible peut encore accepter (évite qu'un seul ingrédient bloque une machine d'alliage !)
+local function getAvailableSpaceForResource(targetMachine: any, targetCfg: any, resId: string, reservedTotal: number, reservedForRes: number): number
+	if targetCfg.IsBelt then
+		local currentTotal = countBuffer(targetMachine.InputBuffer) + countBuffer(targetMachine.OutputBuffer) + reservedTotal
+		return math.max(0, 3 - currentTotal)
+	elseif targetMachine.Type == "DeliveryCenter" or targetMachine.Type == "Storage" then
+		local maxCap = (targetCfg.InputCapacity or 50) * (targetMachine.Level or 1)
+		local currentTotal = countBuffer(targetMachine.InputBuffer) + reservedTotal
+		return math.max(0, maxCap - currentTotal)
+	elseif targetCfg.Recipes then
+		local maxReq = 0
+		for _, recipe in ipairs(targetCfg.Recipes) do
+			local req = recipe.Inputs and recipe.Inputs[resId]
+			if req and req > maxReq then
+				maxReq = req
+			end
+		end
+		-- Si la machine n'utilise pas cette ressource dans ses recettes, elle la refuse !
+		if maxReq <= 0 then
+			return 0
+		end
+		local maxPerIngredient = math.max(maxReq * 3, 4)
+		local currentOfThisRes = (targetMachine.InputBuffer[resId] or 0) + reservedForRes
+		return math.max(0, maxPerIngredient - currentOfThisRes)
+	end
+	return 0
+end
+
 local function updateBillboard(plot, machineData, text: string, color: Color3)
 	local model = plot.MachinesFolder:FindFirstChild(machineData.Id)
 	if not model or not model.PrimaryPart then return end
@@ -51,7 +78,7 @@ local function updateBillboard(plot, machineData, text: string, color: Color3)
 	local titleLbl = bg:FindFirstChild("TitleLabel")
 	local statusLbl = bg:FindFirstChild("StatusLabel")
 	if titleLbl and cfg then
-		titleLbl.Text = cfg.IsBelt and cfg.Name or (cfg.Name .. " [Nv." .. tostring(machineData.Level) .. "]")
+		titleLbl.Text = cfg.IsBelt and cfg.Name or (cfg.Name .. " [Nv." .. tostring(machineData.Level or 1) .. "]")
 	end
 	if statusLbl then
 		statusLbl.Text = text
@@ -94,28 +121,53 @@ function ProductionService.SimulatePlot(player: Player, plot: any, data: any, dt
 		end
 	end
 
-	if os.time() < ProductionService.GlobalBlackoutUntil then energyConsumed = math.ceil(energyConsumed * 1.5) end
+	if os.time() < ProductionService.GlobalBlackoutUntil then
+		energyConsumed = math.ceil(energyConsumed * 1.5)
+	end
 	local hasEnoughEnergy = (energyProduced >= energyConsumed)
 	local prestigeMult = PlotAndPrestigeConfig.GetPrestigeMultiplier(data.Prestige or 0)
 
-	-- 1. VENTE AU CENTRE DE LIVRAISON (+50% de valeur de revente par Niveau !)
+	-- =========================================================================
+	-- 1. VENTE AU CENTRE DE LIVRAISON (+50% par niveau + Event ChaosBounty + Piratage)
+	-- =========================================================================
 	for _, m in ipairs(data.Machines) do
 		if m.Type == "DeliveryCenter" then
 			local totalEarned = 0
+			local totalSoldItems = 0
 			local centerMult = 1 + (((m.Level or 1) - 1) * 0.50)
-			
+
 			for resId, qty in pairs(m.InputBuffer) do
 				if qty > 0 then
 					local itemCfg = ResourceConfig.Items[resId]
 					local val = math.floor((itemCfg and itemCfg.Value or 5) * prestigeMult * centerMult)
 					if activeEventId == "BullMarket" then val = val * 2 end
 					totalEarned = totalEarned + (val * qty)
+					totalSoldItems = totalSoldItems + qty
 					m.InputBuffer[resId] = nil
 				end
 			end
 
 			if totalEarned > 0 then
-				PlayerDataService.AddCredits(player, totalEarned, true)
+				-- CORRECTION : Créditer le Chaos AVANT AddCredits pour que SyncToClient mette à jour le HUD !
+				if activeEventId == "ChaosBounty" then
+					data.ChaosTokens = (data.ChaosTokens or 0) + (3 * totalSoldItems)
+				end
+
+				if plot.CargoStolenByUserId then
+					local thief = Players:GetPlayerByUserId(plot.CargoStolenByUserId)
+					plot.CargoStolenByUserId = nil
+					if thief then
+						PlayerDataService.AddCredits(thief, totalEarned, true)
+						PlayerDataService.Notify(thief, "Livraison piratée : +" .. tostring(totalEarned) .. "$ !", "Success")
+						PlayerDataService.Notify(player, "Une vente de " .. tostring(totalEarned) .. "$ a été piratée !", "Warning")
+						PlayerDataService.SyncToClient(player)
+					else
+						PlayerDataService.AddCredits(player, totalEarned, true)
+					end
+				else
+					PlayerDataService.AddCredits(player, totalEarned, true)
+				end
+
 				updateBillboard(plot, m, "Vendu +" .. tostring(totalEarned) .. "$", Color3.fromRGB(90, 255, 130))
 			else
 				updateBillboard(plot, m, "En attente (x" .. tostring(prestigeMult * centerMult) .. ")", Color3.fromRGB(180, 225, 190))
@@ -123,25 +175,49 @@ function ProductionService.SimulatePlot(player: Player, plot: any, data: any, dt
 		end
 	end
 
-	-- 2. TRANSFERT DES MINERAIS (Gère les virages 90°)
+	-- =========================================================================
+	-- 2. TRANSFERT DES MINERAIS (Virages 90°, Trieur & Filtre de Recettes)
+	-- =========================================================================
 	local transfersToExecute = {}
-	local reservedSpaceOnTarget = {}
+	local reservedTotalOnTarget = {}
+	local reservedPerResOnTarget = {}
 
 	for _, m in ipairs(data.Machines) do
 		local cfg = MachineConfig.Get(m.Type)
 		if not cfg or countBuffer(m.OutputBuffer) <= 0 then continue end
+
+		local chaos = plot.ActiveChaosEffects[m.Id]
+		if chaos and os.time() >= chaos.ExpiresAt then
+			plot.ActiveChaosEffects[m.Id] = nil
+			chaos = nil
+		end
+
+		local baseRot = m.Rotation or 0
+		if chaos and chaos.EffectType == "Inverter" then
+			baseRot = (baseRot + 180) % 360
+		end
 
 		local transferRate = cfg.IsBelt and (cfg.TransferRate or 1) or ((cfg.TransferRate or 1) * (m.Level or 1))
 		local transferred = 0
 
 		for resId, qty in pairs(m.OutputBuffer) do
 			if qty > 0 and transferred < transferRate then
-				local outRot = m.Rotation
-				if cfg.TurnType == "Left" then outRot = (m.Rotation - 90) % 360
-				elseif cfg.TurnType == "Right" then outRot = (m.Rotation + 90) % 360
+				local outRot = baseRot
+				if cfg.TurnType == "Left" then
+					outRot = (baseRot - 90) % 360
+				elseif cfg.TurnType == "Right" then
+					outRot = (baseRot + 90) % 360
 				elseif cfg.TurnType == "Sorter" then
 					local itemInfo = ResourceConfig.Items[resId]
-					if itemInfo and itemInfo.IsRaw then outRot = (m.Rotation + 90) % 360 end
+					if itemInfo and itemInfo.IsRaw then
+						outRot = (baseRot + 90) % 360
+					else
+						-- Si une machine existe à gauche (-90°), le trieur envoie les produits raffinés à gauche, sinon tout droit
+						local lx, lz = getDirectionOffset((baseRot - 90) % 360)
+						if gridMap[tostring(m.GridX + lx) .. "_" .. tostring(m.GridZ + lz)] then
+							outRot = (baseRot - 90) % 360
+						end
+					end
 				end
 
 				local dx, dz = getDirectionOffset(outRot)
@@ -150,20 +226,30 @@ function ProductionService.SimulatePlot(player: Player, plot: any, data: any, dt
 				if targetMachine then
 					local targetCfg = MachineConfig.Get(targetMachine.Type)
 					if targetCfg then
-						-- 3 OBJETS MAX PAR TAPIS pour un flux continu mais réaliste !
-						local targetMaxIn = targetCfg.IsBelt and 3 or math.min(targetCfg.InputCapacity, 5)
-						local currentItemsOnTarget = countBuffer(targetMachine.InputBuffer)
-							+ (targetCfg.IsBelt and countBuffer(targetMachine.OutputBuffer) or 0)
-							+ (reservedSpaceOnTarget[targetMachine.Id] or 0)
+						local resKey = targetMachine.Id .. "_" .. resId
+						local spaceLeft = getAvailableSpaceForResource(
+							targetMachine,
+							targetCfg,
+							resId,
+							reservedTotalOnTarget[targetMachine.Id] or 0,
+							reservedPerResOnTarget[resKey] or 0
+						)
 
-						local spaceLeft = targetMaxIn - currentItemsOnTarget
 						if spaceLeft > 0 then
 							local moveAmt = math.min(qty, transferRate - transferred, spaceLeft)
 							m.OutputBuffer[resId] = qty - moveAmt
 							if m.OutputBuffer[resId] <= 0 then m.OutputBuffer[resId] = nil end
-							reservedSpaceOnTarget[targetMachine.Id] = (reservedSpaceOnTarget[targetMachine.Id] or 0) + moveAmt
+							transferred = transferred + moveAmt
 
-							table.insert(transfersToExecute, { FromMachine = m, ToMachine = targetMachine, ResId = resId, Amount = moveAmt })
+							reservedTotalOnTarget[targetMachine.Id] = (reservedTotalOnTarget[targetMachine.Id] or 0) + moveAmt
+							reservedPerResOnTarget[resKey] = (reservedPerResOnTarget[resKey] or 0) + moveAmt
+
+							table.insert(transfersToExecute, {
+								FromMachine = m,
+								ToMachine = targetMachine,
+								ResId = resId,
+								Amount = moveAmt,
+							})
 						end
 					end
 				end
@@ -181,7 +267,9 @@ function ProductionService.SimulatePlot(player: Player, plot: any, data: any, dt
 		end
 	end
 
-	-- 3. AVANCÉE INTERNE
+	-- =========================================================================
+	-- 3. AVANCÉE INTERNE DES TAPIS ET STOCKAGES
+	-- =========================================================================
 	for _, m in ipairs(data.Machines) do
 		local cfg = MachineConfig.Get(m.Type)
 		if cfg and (cfg.IsBelt or m.Type == "Storage") then
@@ -206,20 +294,44 @@ function ProductionService.SimulatePlot(player: Player, plot: any, data: any, dt
 		end
 	end
 
-	-- 4. FABRICATION
+	-- =========================================================================
+	-- 4. FABRICATION (Mines, Raffineries, Alliages & Progression des Quêtes)
+	-- =========================================================================
+	local totalCraftedThisTick = 0
+
 	for _, m in ipairs(data.Machines) do
 		local cfg = MachineConfig.Get(m.Type)
 		if not cfg or m.Type == "DeliveryCenter" or cfg.IsBelt or m.Type == "Storage" then continue end
 
+		local chaos = plot.ActiveChaosEffects[m.Id]
+		if chaos and os.time() >= chaos.ExpiresAt then
+			plot.ActiveChaosEffects[m.Id] = nil
+			chaos = nil
+		end
+
 		local speedMult = 1 + (((m.Level or 1) - 1) * 0.45)
 		if activeEventId == "Overclock" then speedMult = speedMult * 2.0 end
+
+		if chaos then
+			if chaos.EffectType == "Jammer" then
+				speedMult = speedMult * 0.4
+			elseif chaos.EffectType == "Overload" then
+				if (chaos.ExpiresAt - os.time()) > 10 then
+					speedMult = speedMult * 2.0
+				else
+					updateBillboard(plot, m, "SURCHARGE (Arrêt)", Color3.fromRGB(255, 80, 80))
+					continue
+				end
+			end
+		end
+
 		if cfg.EnergyConsumption > 0 and not hasEnoughEnergy then
 			updateBillboard(plot, m, "Manque Énergie (" .. energyProduced .. "/" .. energyConsumed .. ")", Color3.fromRGB(255, 90, 70))
 			continue
 		end
 
 		if cfg.Recipes then
-			local maxOut = math.min(cfg.OutputCapacity, 5)
+			local maxOut = math.min(cfg.OutputCapacity * (m.Level or 1), 6)
 			if countBuffer(m.OutputBuffer) >= maxOut then
 				updateBillboard(plot, m, "Sortie pleine", Color3.fromRGB(255, 175, 60))
 			else
@@ -227,9 +339,15 @@ function ProductionService.SimulatePlot(player: Player, plot: any, data: any, dt
 				for _, recipe in ipairs(cfg.Recipes) do
 					local ok = true
 					for reqItem, reqQty in pairs(recipe.Inputs) do
-						if (m.InputBuffer[reqItem] or 0) < reqQty then ok = false break end
+						if (m.InputBuffer[reqItem] or 0) < reqQty then
+							ok = false
+							break
+						end
 					end
-					if ok then matchedRecipe = recipe break end
+					if ok then
+						matchedRecipe = recipe
+						break
+					end
 				end
 
 				if matchedRecipe then
@@ -239,12 +357,21 @@ function ProductionService.SimulatePlot(player: Player, plot: any, data: any, dt
 					if m.Progress >= cfg.ProcessTime then
 						m.Progress = 0
 						updateBillboard(plot, m, "En cours : 100%", Color3.fromRGB(110, 240, 145))
+
+						local isCrafting = (next(matchedRecipe.Inputs) ~= nil)
 						for reqItem, reqQty in pairs(matchedRecipe.Inputs) do
 							m.InputBuffer[reqItem] = m.InputBuffer[reqItem] - reqQty
 							if m.InputBuffer[reqItem] <= 0 then m.InputBuffer[reqItem] = nil end
 						end
+
+						local producedCount = 0
 						for outItem, outQty in pairs(matchedRecipe.Outputs) do
 							m.OutputBuffer[outItem] = (m.OutputBuffer[outItem] or 0) + outQty
+							producedCount = producedCount + outQty
+						end
+
+						if isCrafting then
+							totalCraftedThisTick = totalCraftedThisTick + math.max(1, producedCount)
 						end
 					else
 						updateBillboard(plot, m, "En cours : " .. tostring(pct) .. "%", Color3.fromRGB(110, 240, 145))
@@ -257,6 +384,12 @@ function ProductionService.SimulatePlot(player: Player, plot: any, data: any, dt
 		elseif cfg.EnergyProduction > 0 then
 			updateBillboard(plot, m, "+" .. tostring(cfg.EnergyProduction * (m.Level or 1)) .. " Énergie", Color3.fromRGB(255, 230, 80))
 		end
+	end
+
+	-- CORRECTION QUÊTE : Avance le contrat CraftItems et synchronise immédiatement avec le client !
+	if totalCraftedThisTick > 0 then
+		PlayerDataService.AdvanceContract(player, "CraftItems", totalCraftedThisTick)
+		PlayerDataService.SyncToClient(player)
 	end
 end
 
