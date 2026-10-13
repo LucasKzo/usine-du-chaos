@@ -2,6 +2,7 @@
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
+local GuiService = game:GetService("GuiService")
 local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -21,13 +22,27 @@ BuildController.OnMachineClicked = nil
 BuildController.OnModeChanged = nil
 
 local localPlayer = Players.LocalPlayer
-local camera = Workspace.CurrentCamera
 local remotes = ReplicatedStorage:WaitForChild("Remotes")
 
 local function getMyPlotModel(): Model?
 	local idx = localPlayer:GetAttribute("PlotIndex")
 	local folder = Workspace:FindFirstChild("Plots")
 	return (idx and folder) and folder:FindFirstChild("Plot_" .. tostring(idx)) or nil
+end
+
+local function getScreenPosition(input: InputObject?): Vector2
+	if input and input.UserInputType == Enum.UserInputType.Touch then
+		return Vector2.new(input.Position.X, input.Position.Y)
+	end
+	return UserInputService:GetMouseLocation()
+end
+
+local function getViewportRay(screenPosition: Vector2): Ray?
+	local camera = Workspace.CurrentCamera
+	if not camera then return nil end
+
+	local topLeftInset = GuiService:GetGuiInset()
+	return camera:ViewportPointToRay(screenPosition.X - topLeftInset.X, screenPosition.Y - topLeftInset.Y)
 end
 
 function BuildController.StartPlaceMode(machineType: string)
@@ -86,8 +101,9 @@ function BuildController.Init()
 		if not basePart or not machinesFolder then return end
 
 		local cellsCount = basePart:GetAttribute("Cells") or 6
-		local mouseLoc = UserInputService:GetMouseLocation()
-		local ray = camera:ViewportPointToRay(mouseLoc.X, mouseLoc.Y)
+		local screenPosition = getScreenPosition(nil)
+		local ray = getViewportRay(screenPosition)
+		if not ray then return end
 		local params = RaycastParams.new()
 		params.FilterType = Enum.RaycastFilterType.Include
 		params.FilterDescendantsInstances = { basePart }
@@ -146,8 +162,9 @@ function BuildController.Init()
 				local machinesFolder = plotModel:FindFirstChild("Machines")
 				if not machinesFolder then return end
 
-				local mouseLoc = UserInputService:GetMouseLocation()
-				local ray = camera:ViewportPointToRay(mouseLoc.X, mouseLoc.Y)
+				local screenPosition = getScreenPosition(input)
+				local ray = getViewportRay(screenPosition)
+				if not ray then return end
 				local params = RaycastParams.new()
 				params.FilterType = Enum.RaycastFilterType.Include
 				params.FilterDescendantsInstances = { machinesFolder }
