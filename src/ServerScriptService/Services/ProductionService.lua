@@ -14,6 +14,7 @@ local ProductionService = {}
 ProductionService.ActiveWorldEvent = nil
 ProductionService.GlobalBlackoutUntil = 0
 
+-- TICK PLUS RAPIDE : les minerais avancent sans latence
 local TICK_INTERVAL = 0.25
 
 local function getDirectionOffset(rotation: number): (number, number)
@@ -93,14 +94,11 @@ function ProductionService.SimulatePlot(player: Player, plot: any, data: any, dt
 		end
 	end
 
-	if os.time() < ProductionService.GlobalBlackoutUntil then
-		energyConsumed = math.ceil(energyConsumed * 1.5)
-	end
-
+	if os.time() < ProductionService.GlobalBlackoutUntil then energyConsumed = math.ceil(energyConsumed * 1.5) end
 	local hasEnoughEnergy = (energyProduced >= energyConsumed)
 	local prestigeMult = PlotAndPrestigeConfig.GetPrestigeMultiplier(data.Prestige or 0)
 
-	-- 1. VENTE AU CENTRE DE LIVRAISON (+50% de profit par niveau !)
+	-- 1. VENTE AU CENTRE DE LIVRAISON (+50% de valeur de revente par Niveau !)
 	for _, m in ipairs(data.Machines) do
 		if m.Type == "DeliveryCenter" then
 			local totalEarned = 0
@@ -117,18 +115,7 @@ function ProductionService.SimulatePlot(player: Player, plot: any, data: any, dt
 			end
 
 			if totalEarned > 0 then
-				if plot.CargoStolenByUserId then
-					local thief = Players:GetPlayerByUserId(plot.CargoStolenByUserId)
-					plot.CargoStolenByUserId = nil
-					if thief then
-						PlayerDataService.AddCredits(thief, totalEarned, true)
-						PlayerDataService.Notify(thief, "Livraison piratée !", "Success")
-					else
-						PlayerDataService.AddCredits(player, totalEarned, true)
-					end
-				else
-					PlayerDataService.AddCredits(player, totalEarned, true)
-				end
+				PlayerDataService.AddCredits(player, totalEarned, true)
 				updateBillboard(plot, m, "Vendu +" .. tostring(totalEarned) .. "$", Color3.fromRGB(90, 255, 130))
 			else
 				updateBillboard(plot, m, "En attente (x" .. tostring(prestigeMult * centerMult) .. ")", Color3.fromRGB(180, 225, 190))
@@ -136,7 +123,7 @@ function ProductionService.SimulatePlot(player: Player, plot: any, data: any, dt
 		end
 	end
 
-	-- 2. TRANSFERT (Vitesse basée sur le TransferRate du tapis)
+	-- 2. TRANSFERT DES MINERAIS (Gère les virages 90°)
 	local transfersToExecute = {}
 	local reservedSpaceOnTarget = {}
 
@@ -144,22 +131,17 @@ function ProductionService.SimulatePlot(player: Player, plot: any, data: any, dt
 		local cfg = MachineConfig.Get(m.Type)
 		if not cfg or countBuffer(m.OutputBuffer) <= 0 then continue end
 
-		local chaos = plot.ActiveChaosEffects[m.Id]
-		local baseRot = m.Rotation
-		if chaos and chaos.EffectType == "Inverter" then baseRot = (baseRot + 180) % 360 end
-
-		-- Vitesse de transfert = TransferRate (Tapis) ou Level (Machines)
 		local transferRate = cfg.IsBelt and (cfg.TransferRate or 1) or ((cfg.TransferRate or 1) * (m.Level or 1))
 		local transferred = 0
 
 		for resId, qty in pairs(m.OutputBuffer) do
 			if qty > 0 and transferred < transferRate then
-				local outRot = baseRot
-				if cfg.TurnType == "Left" then outRot = (baseRot - 90) % 360
-				elseif cfg.TurnType == "Right" then outRot = (baseRot + 90) % 360
+				local outRot = m.Rotation
+				if cfg.TurnType == "Left" then outRot = (m.Rotation - 90) % 360
+				elseif cfg.TurnType == "Right" then outRot = (m.Rotation + 90) % 360
 				elseif cfg.TurnType == "Sorter" then
 					local itemInfo = ResourceConfig.Items[resId]
-					if itemInfo and itemInfo.IsRaw then outRot = (baseRot + 90) % 360 end
+					if itemInfo and itemInfo.IsRaw then outRot = (m.Rotation + 90) % 360 end
 				end
 
 				local dx, dz = getDirectionOffset(outRot)
@@ -168,7 +150,7 @@ function ProductionService.SimulatePlot(player: Player, plot: any, data: any, dt
 				if targetMachine then
 					local targetCfg = MachineConfig.Get(targetMachine.Type)
 					if targetCfg then
-						-- 3 objets MAX par tapis pour éviter l'empilement invisible
+						-- 3 OBJETS MAX PAR TAPIS pour un flux continu mais réaliste !
 						local targetMaxIn = targetCfg.IsBelt and 3 or math.min(targetCfg.InputCapacity, 5)
 						local currentItemsOnTarget = countBuffer(targetMachine.InputBuffer)
 							+ (targetCfg.IsBelt and countBuffer(targetMachine.OutputBuffer) or 0)
@@ -199,7 +181,7 @@ function ProductionService.SimulatePlot(player: Player, plot: any, data: any, dt
 		end
 	end
 
-	-- 3. AVANCÉE INTERNE DES TAPIS
+	-- 3. AVANCÉE INTERNE
 	for _, m in ipairs(data.Machines) do
 		local cfg = MachineConfig.Get(m.Type)
 		if cfg and (cfg.IsBelt or m.Type == "Storage") then
@@ -213,7 +195,6 @@ function ProductionService.SimulatePlot(player: Player, plot: any, data: any, dt
 					if m.InputBuffer[resId] <= 0 then m.InputBuffer[resId] = nil end
 				end
 			end
-
 			if cfg.IsBelt then
 				local model = plot.MachinesFolder:FindFirstChild(m.Id)
 				if model then
@@ -225,7 +206,7 @@ function ProductionService.SimulatePlot(player: Player, plot: any, data: any, dt
 		end
 	end
 
-	-- 4. FABRICATION DES MINES ET FOURS
+	-- 4. FABRICATION
 	for _, m in ipairs(data.Machines) do
 		local cfg = MachineConfig.Get(m.Type)
 		if not cfg or m.Type == "DeliveryCenter" or cfg.IsBelt or m.Type == "Storage" then continue end

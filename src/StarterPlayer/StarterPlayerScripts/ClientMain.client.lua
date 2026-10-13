@@ -43,9 +43,7 @@ local function hookMachineVisuals(machineModel: Model)
 
 	machineModel:GetAttributeChangedSignal("HeldItem"):Connect(function()
 		local held = machineModel:GetAttribute("HeldItem")
-		if not held or held == "" then
-			clearTileVisual(machineModel)
-		end
+		if not held or held == "" then clearTileVisual(machineModel) end
 	end)
 
 	machineModel.AncestryChanged:Connect(function(_, parent)
@@ -63,11 +61,12 @@ local function hookMachineVisuals(machineModel: Model)
 
 		local itemVisual = nil
 		local existing = waitingVisualOnTile[machineModel]
+		local isReused = false -- C'est cette variable qui manquait !
 		
-		-- Récupération instantanée du modèle sans clignotement
-		if existing and existing.Model and existing.Model.Parent then
+		if existing and existing.Model and existing.Model.Parent and existing.ResId == resId then
 			itemVisual = existing.Model
 			waitingVisualOnTile[machineModel] = nil
+			isReused = true
 		else
 			clearTileVisual(machineModel)
 			itemVisual = ModelFactory.CreateResourceModel(resId)
@@ -97,39 +96,31 @@ local function hookMachineVisuals(machineModel: Model)
 		local startCF = CFrame.new(startPos) * rotCF
 		local endCF = CFrame.new(endPos) * rotCF
 		
-		if not existing then
+		-- Si c'est un NOUVEL objet, on le téléporte sur le tapis avant de lancer l'animation
+		if not isReused then
 			ModelFactory.PivotMachineModel(itemVisual, startCF)
 		end
 
 		local proxy = Instance.new("CFrameValue")
-		-- On part de la position ACTUELLE de l'objet pour un virage parfait sans à-coups
 		proxy.Value = (itemVisual.PrimaryPart and itemVisual.PrimaryPart.CFrame) or startCF
 		
 		local conn = proxy.Changed:Connect(function(newCF)
-			if itemVisual.Parent then
-				ModelFactory.PivotMachineModel(itemVisual, newCF)
-			end
+			if itemVisual.Parent then ModelFactory.PivotMachineModel(itemVisual, newCF) end
 		end)
 
-		-- Vitesse visuelle ajustée : un tapis Express ira 3x plus vite qu'un tapis basique !
-		-- Le +0.15 sert de "colle" anti-lag pour que l'objet ne s'arrête jamais en attendant le tick serveur suivant.
 		local machineType = machineModel:GetAttribute("MachineType")
 		local currentCfg = machineType and MachineConfig.Get(machineType)
 		local tRate = (currentCfg and currentCfg.IsBelt and currentCfg.TransferRate) or 1
 		local tweenTime = (0.25 / tRate) + 0.15
 
 		local tween = TweenService:Create(proxy, TweenInfo.new(tweenTime, Enum.EasingStyle.Linear), { Value = endCF })
-		
 		activeTweens[itemVisual] = { Tween = tween, Conn = conn, Proxy = proxy }
 		tween:Play()
 		
 		tween.Completed:Connect(function()
-			if activeTweens[itemVisual] and activeTweens[itemVisual].Tween == tween then
-				activeTweens[itemVisual] = nil
-			end
+			if activeTweens[itemVisual] and activeTweens[itemVisual].Tween == tween then activeTweens[itemVisual] = nil end
 			conn:Disconnect()
 			proxy:Destroy()
-			
 			if not (targetCfg and targetCfg.IsBelt) then
 				if itemVisual.Parent then itemVisual:Destroy() end
 			end
@@ -149,22 +140,14 @@ RunService.RenderStepped:Connect(function(dt)
 			for _, m in ipairs(machinesFolder:GetChildren()) do
 				if m:IsA("Model") and m.PrimaryPart then
 					hookMachineVisuals(m)
-
 					local drill = m:FindFirstChild("DrillHead")
-					if drill and drill:IsA("BasePart") then
-						drill.CFrame = drill.CFrame * CFrame.Angles(0, dt * 6.0, 0)
-					end
-
+					if drill and drill:IsA("BasePart") then drill.CFrame = drill.CFrame * CFrame.Angles(0, dt * 6.0, 0) end
 					local rotor = m:FindFirstChild("RotorSpinner")
-					if rotor and rotor:IsA("BasePart") then
-						rotor.CFrame = rotor.CFrame * CFrame.Angles(0, dt * 4.0, 0)
-					end
-
+					if rotor and rotor:IsA("BasePart") then rotor.CFrame = rotor.CFrame * CFrame.Angles(0, dt * 4.0, 0) end
 					local piston = m:FindFirstChild("Piston")
 					if piston and piston:IsA("BasePart") then
 						local offset = math.sin(animClock * 5.0) * 0.75
-						local basePos = m.PrimaryPart.Position
-						piston.CFrame = CFrame.new(basePos.X, basePos.Y + 2.4 + offset, basePos.Z) * m.PrimaryPart.CFrame.Rotation
+						piston.CFrame = CFrame.new(m.PrimaryPart.Position.X, m.PrimaryPart.Position.Y + 2.4 + offset, m.PrimaryPart.Position.Z) * m.PrimaryPart.CFrame.Rotation
 					end
 				end
 			end
