@@ -49,8 +49,7 @@ function BuildService.PlaceMachine(player: Player, machineType: string, gridX: n
 		end
 	end
 
-	-- CORRECTION : Utilisation de cfg.Cost au lieu de cfg.Price
-	local price = cfg.Cost or 0
+	local price = cfg.Cost or cfg.Price or 0
 	if machineType == "DeliveryCenter" then
 		local existingCenters = countDeliveryCenters(data.Machines)
 		price = PlotAndPrestigeConfig.GetDeliveryCenterCost(existingCenters)
@@ -92,7 +91,8 @@ function BuildService.RotateExistingMachine(player: Player, machineId: string)
 			local model = plot.MachinesFolder:FindFirstChild(m.Id)
 			if model then
 				model:SetAttribute("Rotation", m.Rotation)
-				local cf = PlotService.GridToWorldCFrame(plot.Index, tierCfg.Cells, m.GridX, m.GridZ, m.Rotation, m.Type)
+				local baseHeight = model.PrimaryPart and model.PrimaryPart.Size.Y or 0.3
+				local cf = PlotService.GridToWorldCFrame(plot.Index, tierCfg.Cells, m.GridX, m.GridZ, m.Rotation, m.Type, baseHeight)
 				ModelFactory.PivotMachineModel(model, cf)
 			end
 			PlayerDataService.SyncToClient(player)
@@ -102,7 +102,6 @@ function BuildService.RotateExistingMachine(player: Player, machineId: string)
 	return false, "Machine introuvable."
 end
 
--- L'amélioration est désormais plafonnée au niveau 3 pour les machines (et désactivée sur les tapis)
 function BuildService.UpgradeMachine(player: Player, machineId: string)
 	local data = PlayerDataService.GetData(player)
 	local plot = PlotService.GetPlotByPlayer(player)
@@ -111,16 +110,15 @@ function BuildService.UpgradeMachine(player: Player, machineId: string)
 	for _, m in ipairs(data.Machines) do
 		if m.Id == machineId then
 			local cfg = MachineConfig.Get(m.Type)
-			local maxLevel = (cfg and cfg.MaxLevel) or 1
+			if cfg and cfg.IsBelt then
+				return false, "Les tapis n'ont pas de niveaux : achète la gamme supérieure dans Tapis & 90° !"
+			end
+			local maxLevel = (cfg and cfg.MaxLevel) or 3
 			if m.Level >= maxLevel then
 				return false, "Niveau maximum (" .. tostring(maxLevel) .. ") atteint !"
 			end
-			
-			local cost = 0
-			if cfg and cfg.UpgradeCost and cfg.UpgradeCost[m.Level] then
-				cost = cfg.UpgradeCost[m.Level]
-			end
-			
+
+			local cost = MachineConfig.GetUpgradeCost(m.Type, m.Level)
 			if data.Credits < cost then
 				return false, "Il te faut " .. tostring(cost) .. "$ pour améliorer."
 			end
@@ -168,7 +166,8 @@ function BuildService.MoveMachine(player: Player, machineId: string, newX: numbe
 				model:SetAttribute("GridX", newX)
 				model:SetAttribute("GridZ", newZ)
 				model:SetAttribute("Rotation", newRot)
-				local cf = PlotService.GridToWorldCFrame(plot.Index, tierCfg.Cells, newX, newZ, newRot, m.Type)
+				local baseHeight = model.PrimaryPart and model.PrimaryPart.Size.Y or 0.3
+				local cf = PlotService.GridToWorldCFrame(plot.Index, tierCfg.Cells, newX, newZ, newRot, m.Type, baseHeight)
 				ModelFactory.PivotMachineModel(model, cf)
 			end
 			PlayerDataService.SyncToClient(player)
@@ -186,8 +185,7 @@ function BuildService.SellMachine(player: Player, machineId: string)
 	for idx, m in ipairs(data.Machines) do
 		if m.Id == machineId then
 			local cfg = MachineConfig.Get(m.Type)
-			-- CORRECTION : Utilisation de cfg.Cost au lieu de cfg.Price pour la revente
-			local paid = m.PaidPrice or (cfg and cfg.Cost or 0)
+			local paid = m.PaidPrice or (cfg and (cfg.Cost or cfg.Price) or 0)
 			local refund = math.floor(paid * 0.7)
 
 			table.remove(data.Machines, idx)

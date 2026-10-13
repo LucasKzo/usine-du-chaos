@@ -159,7 +159,7 @@ MachineConfig.Definitions = {
 	},
 
 	-- ==========================================
-	-- ENERGIE & VENTE (MaxLevel = 3)
+	-- ÉNERGIE & VENTE (MaxLevel = 3)
 	-- ==========================================
 	ThermalGenerator = {
 		Name = "Générateur Thermique", Category = "Energy",
@@ -191,91 +191,122 @@ MachineConfig.Definitions = {
 	},
 
 	-- ==========================================
-	-- TAPIS ROULANTS (MaxLevel = 1 UNIQUEMENT)
+	-- TAPIS ROULANTS (MaxLevel = 1)
 	-- ==========================================
 	Belt1_Straight = {
 		Name = "Tapis Basique Droit", Category = "Belts", IsBelt = true,
-		InputCapacity = 1, OutputCapacity = 1, TransferRate = 1,
+		InputCapacity = 3, OutputCapacity = 3, TransferRate = 1,
 		EnergyConsumption = 0, EnergyProduction = 0,
 		Cost = 50, MaxLevel = 1, UpgradeCost = {}, Color = Color3.fromRGB(80, 85, 95), TurnType = "Straight"
 	},
 	Belt1_Left = {
 		Name = "Tapis Basique Gauche", Category = "Belts", IsBelt = true,
-		InputCapacity = 1, OutputCapacity = 1, TransferRate = 1,
+		InputCapacity = 3, OutputCapacity = 3, TransferRate = 1,
 		EnergyConsumption = 0, EnergyProduction = 0,
 		Cost = 50, MaxLevel = 1, UpgradeCost = {}, Color = Color3.fromRGB(80, 85, 95), TurnType = "Left"
 	},
 	Belt1_Right = {
 		Name = "Tapis Basique Droite", Category = "Belts", IsBelt = true,
-		InputCapacity = 1, OutputCapacity = 1, TransferRate = 1,
+		InputCapacity = 3, OutputCapacity = 3, TransferRate = 1,
 		EnergyConsumption = 0, EnergyProduction = 0,
 		Cost = 50, MaxLevel = 1, UpgradeCost = {}, Color = Color3.fromRGB(80, 85, 95), TurnType = "Right"
 	},
 
 	Belt2_Straight = {
 		Name = "Tapis Rapide Droit", Category = "Belts", IsBelt = true,
-		InputCapacity = 1, OutputCapacity = 1, TransferRate = 2,
+		InputCapacity = 3, OutputCapacity = 3, TransferRate = 2,
 		EnergyConsumption = 0, EnergyProduction = 0,
 		Cost = 250, MaxLevel = 1, UpgradeCost = {}, Color = Color3.fromRGB(50, 130, 225), TurnType = "Straight"
 	},
 	Belt2_Left = {
 		Name = "Tapis Rapide Gauche", Category = "Belts", IsBelt = true,
-		InputCapacity = 1, OutputCapacity = 1, TransferRate = 2,
+		InputCapacity = 3, OutputCapacity = 3, TransferRate = 2,
 		EnergyConsumption = 0, EnergyProduction = 0,
 		Cost = 250, MaxLevel = 1, UpgradeCost = {}, Color = Color3.fromRGB(50, 130, 225), TurnType = "Left"
 	},
 	Belt2_Right = {
 		Name = "Tapis Rapide Droite", Category = "Belts", IsBelt = true,
-		InputCapacity = 1, OutputCapacity = 1, TransferRate = 2,
+		InputCapacity = 3, OutputCapacity = 3, TransferRate = 2,
 		EnergyConsumption = 0, EnergyProduction = 0,
 		Cost = 250, MaxLevel = 1, UpgradeCost = {}, Color = Color3.fromRGB(50, 130, 225), TurnType = "Right"
 	},
 
 	Belt3_Straight = {
 		Name = "Tapis Express Droit", Category = "Belts", IsBelt = true,
-		InputCapacity = 1, OutputCapacity = 1, TransferRate = 3,
+		InputCapacity = 3, OutputCapacity = 3, TransferRate = 3,
 		EnergyConsumption = 0, EnergyProduction = 0,
 		Cost = 1500, MaxLevel = 1, UpgradeCost = {}, Color = Color3.fromRGB(240, 185, 45), TurnType = "Straight"
 	},
 	Belt3_Left = {
 		Name = "Tapis Express Gauche", Category = "Belts", IsBelt = true,
-		InputCapacity = 1, OutputCapacity = 1, TransferRate = 3,
+		InputCapacity = 3, OutputCapacity = 3, TransferRate = 3,
 		EnergyConsumption = 0, EnergyProduction = 0,
 		Cost = 1500, MaxLevel = 1, UpgradeCost = {}, Color = Color3.fromRGB(240, 185, 45), TurnType = "Left"
 	},
 	Belt3_Right = {
 		Name = "Tapis Express Droite", Category = "Belts", IsBelt = true,
-		InputCapacity = 1, OutputCapacity = 1, TransferRate = 3,
+		InputCapacity = 3, OutputCapacity = 3, TransferRate = 3,
 		EnergyConsumption = 0, EnergyProduction = 0,
 		Cost = 1500, MaxLevel = 1, UpgradeCost = {}, Color = Color3.fromRGB(240, 185, 45), TurnType = "Right"
 	},
 
 	Belt4_Straight = {
 		Name = "Tapis Quantique Droit", Category = "Belts", IsBelt = true,
-		InputCapacity = 1, OutputCapacity = 1, TransferRate = 5,
+		InputCapacity = 3, OutputCapacity = 3, TransferRate = 5,
 		EnergyConsumption = 0, EnergyProduction = 0,
 		Cost = 12000, MaxLevel = 1, UpgradeCost = {}, Color = Color3.fromRGB(165, 65, 245), TurnType = "Straight"
 	},
 
-	-- ==========================================
-	-- JONCTIONS ET AIGUILLAGES (MaxLevel = 1)
-	-- ==========================================
 	Merger = {
 		Name = "Jonction 3-en-1", Category = "Belts", IsBelt = true,
-		InputCapacity = 1, OutputCapacity = 1, TransferRate = 2,
+		InputCapacity = 3, OutputCapacity = 3, TransferRate = 2,
 		EnergyConsumption = 0, EnergyProduction = 0,
 		Cost = 350, MaxLevel = 1, UpgradeCost = {}, Color = Color3.fromRGB(55, 190, 145), TurnType = "Straight"
 	},
 	Sorter = {
 		Name = "Trieur Gauche/Droite", Category = "Belts", IsBelt = true,
-		InputCapacity = 1, OutputCapacity = 1, TransferRate = 2,
+		InputCapacity = 3, OutputCapacity = 3, TransferRate = 2,
 		EnergyConsumption = 0, EnergyProduction = 0,
 		Cost = 850, MaxLevel = 1, UpgradeCost = {}, Color = Color3.fromRGB(45, 200, 230), TurnType = "Sorter"
 	},
 }
 
+-- Synchronisation automatique des champs Price et Description pour tous les contrôleurs UI
+for id, def in pairs(MachineConfig.Definitions) do
+	def.Price = def.Cost or 0
+	if not def.Description then
+		if def.IsBelt then
+			def.Description = "Débit : " .. tostring(def.TransferRate or 1) .. " objet(s)/tick (Sans niveau)"
+		elseif def.Category == "Extractors" then
+			def.Description = "Extrait 1 minerai toutes les " .. tostring(def.ProcessTime) .. "s"
+		elseif def.Category == "Refiners" or def.Category == "Alloys" then
+			def.Description = "Transformation en " .. tostring(def.ProcessTime) .. "s"
+		elseif (def.EnergyProduction or 0) > 0 then
+			def.Description = "Produit +" .. tostring(def.EnergyProduction) .. " Énergie / niveau"
+		elseif id == "DeliveryCenter" then
+			def.Description = "Vend les ressources (+50% de profit par niveau)"
+		else
+			def.Description = "Capacité : " .. tostring(def.InputCapacity or 100) .. " ressources"
+		end
+	end
+end
+
 function MachineConfig.Get(typeId: string)
 	return MachineConfig.Definitions[typeId]
+end
+
+-- Indispensable pour HUDController lorsqu'on clique sur une machine posée !
+function MachineConfig.GetUpgradeCost(typeId: string, currentLevel: number): number
+	local cfg = MachineConfig.Definitions[typeId]
+	if not cfg or cfg.IsBelt then
+		return 0
+	end
+	local lvl = currentLevel or 1
+	if cfg.UpgradeCost and cfg.UpgradeCost[lvl] then
+		return cfg.UpgradeCost[lvl]
+	end
+	local base = cfg.Cost or cfg.Price or 100
+	return math.floor(base * (2.5 ^ lvl))
 end
 
 return MachineConfig

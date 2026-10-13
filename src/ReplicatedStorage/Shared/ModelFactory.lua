@@ -19,7 +19,7 @@ local function addPart(parent: Instance, name: string, size: Vector3, cf: CFrame
 	p.CFrame = cf
 	p.Anchored = true
 	p.CanCollide = false
-	p.CanQuery = true -- OBLIGATOIRE : Permet à la souris de cliquer sur les machines Lua !
+	p.CanQuery = true
 	p.Color = color
 	p.Material = mat
 	p.TopSurface = Enum.SurfaceType.Smooth
@@ -66,7 +66,7 @@ local function prepareCustomModel(template: Instance, targetWidth: number, isPre
 	base.CFrame = CFrame.new(0, baseHeight / 2, 0)
 	base.Anchored = true
 	base.CanCollide = not isPreview
-	base.CanQuery = not isResource -- OBLIGATOIRE : Permet à la souris de cliquer sur tes FBX !
+	base.CanQuery = not isResource
 	base.Transparency = isResource and 1 or 0
 	base.Color = DARK_METAL
 	base.Material = Enum.Material.Metal
@@ -126,7 +126,7 @@ local function prepareCustomModel(template: Instance, targetWidth: number, isPre
 		for _, part in ipairs(parts) do
 			part.Anchored = true
 			part.CanCollide = not isPreview
-			part.CanQuery = not isResource -- OBLIGATOIRE : Ignoré uniquement si c'est un minerai
+			part.CanQuery = not isResource
 			local relX = (part.Position.X - centerX) * scaleFactor
 			local relY = (part.Position.Y - bottomY) * scaleFactor
 			local relZ = (part.Position.Z - centerZ) * scaleFactor
@@ -140,7 +140,6 @@ local function prepareCustomModel(template: Instance, targetWidth: number, isPre
 	return wrapper
 end
 
--- ==================== MODÈLES 3D DES 20 RESSOURCES ====================
 function ModelFactory.CreateResourceModel(resourceId: string): Model
 	local info = ResourceConfig.Items[resourceId] or ResourceConfig.Items.IronOre
 	local customFolder = ReplicatedStorage:FindFirstChild("CustomAssets")
@@ -188,7 +187,6 @@ function ModelFactory.CreateResourceModel(resourceId: string): Model
 	return model
 end
 
--- ==================== MODÈLES 3D DES MACHINES & TAPIS ====================
 function ModelFactory.CreateMachineModel(machineType: string, isPreview: boolean?): Model
 	local cfg = MachineConfig.Get(machineType) or MachineConfig.Get("IronExtractor")
 	local cellSize = PlotAndPrestigeConfig.CellSize
@@ -215,7 +213,7 @@ function ModelFactory.CreateMachineModel(machineType: string, isPreview: boolean
 		base.CFrame = CFrame.new(0, baseHeight / 2, 0)
 		base.Anchored = true
 		base.CanCollide = not isPreview
-		base.CanQuery = true -- OBLIGATOIRE
+		base.CanQuery = true
 		base.Color = DARK_METAL
 		base.Material = Enum.Material.Metal
 		base.Parent = model
@@ -226,29 +224,60 @@ function ModelFactory.CreateMachineModel(machineType: string, isPreview: boolean
 			addPart(model, "BeltSurface", Vector3.new(4.2, 0.15, cellSize - 0.3), bc * CFrame.new(0, 0.2, 0), Color3.fromRGB(24, 26, 30), Enum.Material.Slate)
 			addPart(model, "RailL", Vector3.new(0.45, 0.45, cellSize - 0.3), bc * CFrame.new(-2.35, 0.3, 0), cfg.Color, Enum.Material.Metal)
 			addPart(model, "RailR", Vector3.new(0.45, 0.45, cellSize - 0.3), bc * CFrame.new(2.35, 0.3, 0), cfg.Color, Enum.Material.Metal)
-			if cfg.TurnType == "Left" then addPart(model, "CornerGuide", Vector3.new(0.45, 0.55, 4.6), bc * CFrame.new(0.3, 0.35, -0.3) * CFrame.Angles(0, math.rad(45), 0), cfg.Color, Enum.Material.Neon)
-			elseif cfg.TurnType == "Right" then addPart(model, "CornerGuide", Vector3.new(0.45, 0.55, 4.6), bc * CFrame.new(-0.3, 0.35, -0.3) * CFrame.Angles(0, math.rad(-45), 0), cfg.Color, Enum.Material.Neon)
+			for z = -2.0, 2.0, 1.0 do
+				addPart(model, "Roller", Vector3.new(0.25, 4.1, 0.25), bc * CFrame.new(0, 0.22, z) * CFrame.Angles(0, 0, math.rad(90)), MID_METAL, Enum.Material.Metal, Enum.PartType.Cylinder)
 			end
+		elseif machineType == "DeliveryCenter" then
+			addPart(model, "HazardRim", Vector3.new(5.2, 0.35, 5.2), bc * CFrame.new(0, 0.25, 0), Color3.fromRGB(240, 180, 25), Enum.Material.DiamondPlate)
+			addPart(model, "TeleporterPad", Vector3.new(0.5, 3.6, 3.6), bc * CFrame.new(0, 0.35, 0) * CFrame.Angles(0, 0, math.rad(90)), Color3.fromRGB(45, 240, 115), Enum.Material.Neon, Enum.PartType.Cylinder)
+		elseif machineType == "Storage" then
+			addPart(model, "SiloCylinder", Vector3.new(4.0, 3.8, 3.8), bc * CFrame.new(0, 2.2, 0) * CFrame.Angles(0, 0, math.rad(90)), cfg.Color, Enum.Material.Metal, Enum.PartType.Cylinder)
+		elseif cfg.Category == "Energy" then
+			addPart(model, "ReactorPedestal", Vector3.new(4.4, 1.2, 4.4), bc * CFrame.new(0, 0.7, 0), MID_METAL, Enum.Material.Metal)
+			addPart(model, "PlasmaSphere", Vector3.new(2.6, 2.6, 2.6), bc * CFrame.new(0, 2.8, 0), cfg.Color, Enum.Material.Neon, Enum.PartType.Ball)
+			addPart(model, "RotorSpinner", Vector3.new(0.45, 3.6, 3.6), bc * CFrame.new(0, 2.8, 0), LIGHT_STEEL, Enum.Material.Metal, Enum.PartType.Cylinder)
+		elseif cfg.Category == "Extractors" then
+			addPart(model, "RockBed", Vector3.new(3.4, 0.7, 3.4), bc * CFrame.new(0, 0.4, 0), Color3.fromRGB(75, 72, 68), Enum.Material.Slate)
+			for _, sx in ipairs({ -2.0, 2.0 }) do
+				for _, sz in ipairs({ -2.0, 2.0 }) do
+					addPart(model, "RigLeg", Vector3.new(0.55, 4.4, 0.55), bc * CFrame.new(sx, 2.35, sz), DARK_METAL, Enum.Material.Metal)
+				end
+			end
+			addPart(model, "TopMotorBox", Vector3.new(4.8, 1.1, 4.8), bc * CFrame.new(0, 4.8, 0), cfg.Color, Enum.Material.Metal)
+			addPart(model, "DrillHead", Vector3.new(1.3, 3.8, 1.3), bc * CFrame.new(0, 2.6, 0), LIGHT_STEEL, Enum.Material.DiamondPlate)
+		else
+			addPart(model, "FurnaceChamber", Vector3.new(4.2, 3.2, 4.2), bc * CFrame.new(0, 1.75, 0), cfg.Color, Enum.Material.Metal)
+			addPart(model, "MoltenWindow", Vector3.new(2.6, 1.6, 4.35), bc * CFrame.new(0, 1.5, 0), Color3.fromRGB(255, 145, 35), Enum.Material.Neon)
 		end
 	end
 
 	local baseCF = base.CFrame
+
+	-- Ajout du déflecteur lumineux sur les tapis 90° (même avec les modèles FBX !)
+	if isBelt and cfg.TurnType == "Left" then
+		addPart(model, "CornerGuide", Vector3.new(0.4, 0.45, 4.4), baseCF * CFrame.new(0.4, 0.75, -0.4) * CFrame.Angles(0, math.rad(45), 0), cfg.Color, Enum.Material.Neon).CanQuery = false
+	elseif isBelt and cfg.TurnType == "Right" then
+		addPart(model, "CornerGuide", Vector3.new(0.4, 0.45, 4.4), baseCF * CFrame.new(-0.4, 0.75, -0.4) * CFrame.Angles(0, math.rad(-45), 0), cfg.Color, Enum.Material.Neon).CanQuery = false
+	end
+
+	-- Vrai chevron directionnel (^) placé AU-DESSUS du socle/rouleaux pour voir clairement la rotation !
 	local turnAngle = (cfg.TurnType == "Left" and 90) or (cfg.TurnType == "Right" and -90) or 0
 	local arrowPivot = baseCF * CFrame.Angles(0, math.rad(turnAngle), 0)
-	local tip = Instance.new("WedgePart")
-	tip.Name = "ArrowTip"
-	tip.Size = Vector3.new(0.15, 0.9, 0.9)
-	tip.Anchored = true
-	tip.CanCollide = false
-	tip.CanQuery = false
-	tip.Color = Color3.fromRGB(255, 225, 60)
-	tip.Material = Enum.Material.Neon
-	tip.CFrame = arrowPivot * CFrame.new(0, (baseHeight / 2) + 0.1, isBelt and -0.4 or -2.2) * CFrame.Angles(0, 0, math.rad(90))
-	tip.Parent = model
+	local arrowY = isBelt and 0.72 or 0.85
+	local arrowZ = isBelt and -0.8 or -2.35
+
+	local chevL = addPart(model, "ArrowChevronL", Vector3.new(0.22, 0.18, 1.05), arrowPivot * CFrame.new(-0.3, arrowY, arrowZ) * CFrame.Angles(0, math.rad(-42), 0), Color3.fromRGB(255, 230, 50), Enum.Material.Neon)
+	chevL.CanQuery = false
+	local chevR = addPart(model, "ArrowChevronR", Vector3.new(0.22, 0.18, 1.05), arrowPivot * CFrame.new(0.3, arrowY, arrowZ) * CFrame.Angles(0, math.rad(42), 0), Color3.fromRGB(255, 230, 50), Enum.Material.Neon)
+	chevR.CanQuery = false
 
 	if isPreview then
 		for _, part in ipairs(model:GetDescendants()) do
-			if part:IsA("BasePart") then part.Transparency = math.max(part.Transparency, 0.45) part.CanCollide = false end
+			if part:IsA("BasePart") then
+				part.Transparency = math.max(part.Transparency, 0.45)
+				part.CanCollide = false
+				part.CanQuery = false
+			end
 		end
 		return model
 	end

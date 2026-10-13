@@ -2,7 +2,6 @@
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
-local GuiService = game:GetService("GuiService")
 local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -22,6 +21,7 @@ BuildController.OnMachineClicked = nil
 BuildController.OnModeChanged = nil
 
 local localPlayer = Players.LocalPlayer
+local camera = Workspace.CurrentCamera
 local remotes = ReplicatedStorage:WaitForChild("Remotes")
 
 local function getMyPlotModel(): Model?
@@ -30,28 +30,15 @@ local function getMyPlotModel(): Model?
 	return (idx and folder) and folder:FindFirstChild("Plot_" .. tostring(idx)) or nil
 end
 
-local function getScreenPosition(input: InputObject?): Vector2
-	if input and input.UserInputType == Enum.UserInputType.Touch then
-		return Vector2.new(input.Position.X, input.Position.Y)
-	end
-	return UserInputService:GetMouseLocation()
-end
-
-local function getViewportRay(screenPosition: Vector2): Ray?
-	local camera = Workspace.CurrentCamera
-	if not camera then return nil end
-
-	local topLeftInset = GuiService:GetGuiInset()
-	return camera:ViewportPointToRay(screenPosition.X - topLeftInset.X, screenPosition.Y - topLeftInset.Y)
-end
-
 function BuildController.StartPlaceMode(machineType: string)
 	BuildController.CancelMode()
 	BuildController.Mode = "Place"
 	BuildController.SelectedMachineType = machineType
 	BuildController.PreviewModel = ModelFactory.CreateMachineModel(machineType, true)
 	BuildController.PreviewModel.Parent = Workspace
-	if BuildController.OnModeChanged then BuildController.OnModeChanged(true) end
+	if BuildController.OnModeChanged then
+		BuildController.OnModeChanged(true)
+	end
 end
 
 function BuildController.StartMoveMode(machineId: string, machineType: string, currentRot: number)
@@ -62,11 +49,19 @@ function BuildController.StartMoveMode(machineId: string, machineType: string, c
 	BuildController.Rotation = currentRot or 0
 	BuildController.PreviewModel = ModelFactory.CreateMachineModel(machineType, true)
 	BuildController.PreviewModel.Parent = Workspace
-	if BuildController.OnModeChanged then BuildController.OnModeChanged(true) end
+	if BuildController.OnModeChanged then
+		BuildController.OnModeChanged(true)
+	end
 end
 
 function BuildController.RotatePreview()
 	BuildController.Rotation = (BuildController.Rotation + 90) % 360
+	-- Applique immédiatement la rotation visuelle à l'aperçu même si la souris survole un bouton UI
+	if BuildController.PreviewModel and BuildController.PreviewModel.PrimaryPart then
+		local pos = BuildController.PreviewModel.PrimaryPart.Position
+		local cf = CFrame.new(pos) * CFrame.Angles(0, math.rad(-BuildController.Rotation), 0)
+		ModelFactory.PivotMachineModel(BuildController.PreviewModel, cf)
+	end
 end
 
 function BuildController.CancelMode()
@@ -77,7 +72,9 @@ function BuildController.CancelMode()
 		BuildController.PreviewModel:Destroy()
 		BuildController.PreviewModel = nil
 	end
-	if BuildController.OnModeChanged then BuildController.OnModeChanged(false) end
+	if BuildController.OnModeChanged then
+		BuildController.OnModeChanged(false)
+	end
 end
 
 function BuildController.ConfirmAction()
@@ -100,10 +97,9 @@ function BuildController.Init()
 		local machinesFolder = plotModel:FindFirstChild("Machines")
 		if not basePart or not machinesFolder then return end
 
-		local cellsCount = basePart:GetAttribute("Cells") or 6
-		local screenPosition = getScreenPosition(nil)
-		local ray = getViewportRay(screenPosition)
-		if not ray then return end
+		local cellsCount = basePart:GetAttribute("Cells") or PlotAndPrestigeConfig.PlotTiers[1].Cells
+		local mouseLoc = UserInputService:GetMouseLocation()
+		local ray = camera:ViewportPointToRay(mouseLoc.X, mouseLoc.Y)
 		local params = RaycastParams.new()
 		params.FilterType = Enum.RaycastFilterType.Include
 		params.FilterDescendantsInstances = { basePart }
@@ -131,7 +127,7 @@ function BuildController.Init()
 			end
 			BuildController.IsValidPlacement = not occupied
 
-			local baseHeight = BuildController.PreviewModel.PrimaryPart and BuildController.PreviewModel.PrimaryPart.Size.Y or 0.6
+			local baseHeight = BuildController.PreviewModel.PrimaryPart and BuildController.PreviewModel.PrimaryPart.Size.Y or 0.3
 			local floorTopY = basePart.Position.Y + (basePart.Size.Y / 2)
 			local worldX = originX + (gx - 0.5) * cellSize
 			local worldZ = originZ + (gz - 0.5) * cellSize
@@ -148,12 +144,22 @@ function BuildController.Init()
 	end)
 
 	UserInputService.InputBegan:Connect(function(input, gp)
-		if gp then return end
+		-- La touche R et X/Escape fonctionnent toujours en mode construction
 		if input.KeyCode == Enum.KeyCode.R then
-			BuildController.RotatePreview()
+			if BuildController.Mode ~= "None" then
+				BuildController.RotatePreview()
+			end
+			return
 		elseif input.KeyCode == Enum.KeyCode.X or input.KeyCode == Enum.KeyCode.Escape then
-			BuildController.CancelMode()
-		elseif input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			if BuildController.Mode ~= "None" then
+				BuildController.CancelMode()
+			end
+			return
+		end
+
+		if gp then return end
+
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
 			if BuildController.Mode ~= "None" then
 				BuildController.ConfirmAction()
 			else
@@ -162,18 +168,21 @@ function BuildController.Init()
 				local machinesFolder = plotModel:FindFirstChild("Machines")
 				if not machinesFolder then return end
 
-				local screenPosition = getScreenPosition(input)
-				local ray = getViewportRay(screenPosition)
-				if not ray then return end
+				local mouseLoc = UserInputService:GetMouseLocation()
+				local ray = camera:ViewportPointToRay(mouseLoc.X, mouseLoc.Y)
 				local params = RaycastParams.new()
 				params.FilterType = Enum.RaycastFilterType.Include
 				params.FilterDescendantsInstances = { machinesFolder }
 
-				local hit = Workspace:Raycast(ray.Origin, ray.Direction * 250, params)
+				local hit = Workspace:Raycast(ray.Origin, ray.Direction * 300, params)
 				if hit and hit.Instance then
-					local model = hit.Instance:FindFirstAncestorOfClass("Model")
-					if model and model:GetAttribute("MachineId") and BuildController.OnMachineClicked then
-						BuildController.OnMachineClicked(model)
+					-- Remonte jusqu'au Model enfant direct de machinesFolder (compatible sous-modèles FBX)
+					local current: Instance? = hit.Instance
+					while current and current.Parent ~= machinesFolder and current ~= Workspace do
+						current = current.Parent
+					end
+					if current and current:IsA("Model") and current:GetAttribute("MachineId") and BuildController.OnMachineClicked then
+						BuildController.OnMachineClicked(current)
 					end
 				end
 			end
