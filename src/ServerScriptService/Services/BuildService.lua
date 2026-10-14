@@ -39,8 +39,19 @@ function BuildService.PlaceMachine(player: Player, machineType: string, gridX: n
 		return false, "Hors de ton terrain actuel (" .. tierCfg.Cells .. "x" .. tierCfg.Cells .. "). Agrandis ta parcelle !"
 	end
 
-	if #data.Machines >= tierCfg.MaxMachines then
-		return false, "Limite de machines atteinte (" .. tierCfg.MaxMachines .. "). Agrandis ta parcelle !"
+	if not cfg.IsBelt then
+		local realMachineCount = 0
+		for _, m in ipairs(data.Machines) do
+			local mCfg = MachineConfig.Get(m.Type)
+			if mCfg and not mCfg.IsBelt then
+				realMachineCount = realMachineCount + 1
+			end
+		end
+
+		if realMachineCount >= tierCfg.MaxMachines then
+			PlayerDataService.Notify(player, "Limite de machines atteinte (" .. tierCfg.MaxMachines .. "). Agrandis ta parcelle !", "Warning")
+			return false, "Limite de machines atteinte."
+		end
 	end
 
 	for _, m in ipairs(data.Machines) do
@@ -56,7 +67,8 @@ function BuildService.PlaceMachine(player: Player, machineType: string, gridX: n
 	end
 
 	if data.Credits < price then
-		return false, "Crédits insuffisants (" .. tostring(price) .. "$ requis)."
+		PlayerDataService.Notify(player, "Crédits insuffisants (" .. tostring(price) .. "$ requis).", "Warning")
+		return false, "Crédits insuffisants."
 	end
 
 	data.Credits = data.Credits - price
@@ -72,6 +84,13 @@ function BuildService.PlaceMachine(player: Player, machineType: string, gridX: n
 		OutputBuffer = {},
 	}
 	table.insert(data.Machines, newMachine)
+
+	-- DÉBLOCAGE WIKI : Si le joueur pose un extracteur, on débloque sa filière dans le Wiki !
+	data.UnlockedExtractors = data.UnlockedExtractors or {}
+	if cfg.Category == "Extractors" and not data.UnlockedExtractors[machineType] then
+		data.UnlockedExtractors[machineType] = true
+		PlayerDataService.Notify(player, "📘 Nouveau schéma débloqué dans le Wiki : " .. cfg.Name .. " !", "Success")
+	end
 
 	PlotService.SpawnMachineModel(plot.Index, tierCfg.Cells, newMachine)
 	PlayerDataService.AdvanceContract(player, "BuildActions", 1)
@@ -111,7 +130,7 @@ function BuildService.UpgradeMachine(player: Player, machineId: string)
 		if m.Id == machineId then
 			local cfg = MachineConfig.Get(m.Type)
 			if cfg and cfg.IsBelt then
-				return false, "Les tapis n'ont pas de niveaux : achète la gamme supérieure dans Tapis & 90° !"
+				return false, "Les tapis n'ont pas de niveaux."
 			end
 			local maxLevel = (cfg and cfg.MaxLevel) or 3
 			if m.Level >= maxLevel then
@@ -120,7 +139,8 @@ function BuildService.UpgradeMachine(player: Player, machineId: string)
 
 			local cost = MachineConfig.GetUpgradeCost(m.Type, m.Level)
 			if data.Credits < cost then
-				return false, "Il te faut " .. tostring(cost) .. "$ pour améliorer."
+				PlayerDataService.Notify(player, "Il te faut " .. tostring(cost) .. "$ pour améliorer.", "Warning")
+				return false, "Crédits insuffisants."
 			end
 
 			data.Credits = data.Credits - cost
@@ -212,7 +232,8 @@ function BuildService.UpgradePlotTier(player: Player)
 	end
 
 	if data.Credits < nextCfg.Cost then
-		return false, "Il te faut " .. tostring(nextCfg.Cost) .. "$ pour débloquer " .. nextCfg.Name .. "."
+		PlayerDataService.Notify(player, "Il te faut " .. tostring(nextCfg.Cost) .. "$ pour agrandir.", "Warning")
+		return false, "Il te faut " .. tostring(nextCfg.Cost) .. "$."
 	end
 
 	data.Credits = data.Credits - nextCfg.Cost
@@ -229,20 +250,24 @@ function BuildService.TriggerPrestige(player: Player)
 
 	local reqCost = PlotAndPrestigeConfig.GetPrestigeCost(data.Prestige)
 	if data.Credits < reqCost then
-		return false, "Il te faut " .. tostring(reqCost) .. "$ pour passer au Prestige " .. tostring(data.Prestige + 1) .. "."
+		PlayerDataService.Notify(player, "Il te faut " .. tostring(reqCost) .. "$ pour le Prestige !", "Warning")
+		return false, "Crédits insuffisants."
 	end
 
 	data.Prestige = data.Prestige + 1
 	data.Credits = PlotAndPrestigeConfig.StartingCredits
 	data.PlotTier = 1
 	data.Machines = {}
+	-- Si tu veux que le Wiki se réinitialise à chaque Prestige, décommente la ligne ci-dessous :
+	-- data.UnlockedExtractors = {}
 
 	plot.SignLabel.Text = "Usine de " .. player.Name .. " [Prestige " .. tostring(data.Prestige) .. "]"
 	PlotService.RebuildPlotModels(plot.Index, data)
 	PlayerDataService.SyncToClient(player)
 
 	local mult = PlotAndPrestigeConfig.GetPrestigeMultiplier(data.Prestige)
-	return true, "PRESTIGE " .. tostring(data.Prestige) .. " ATTEINT ! Tes ventes rapportent désormais x" .. tostring(mult) .. " de façon permanente !"
+	PlayerDataService.Notify(player, "🌟 PRESTIGE " .. tostring(data.Prestige) .. " ATTEINT ! Multiplicateur x" .. tostring(mult) .. " !", "Success")
+	return true, "PRESTIGE " .. tostring(data.Prestige) .. " ATTEINT !"
 end
 
 return BuildService

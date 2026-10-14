@@ -37,14 +37,13 @@ local function getFirstItem(buf: { [string]: number }): string
 	return ""
 end
 
--- Vérifie combien d'exemplaires de `resId` une machine cible peut encore accepter (évite qu'un seul ingrédient bloque une machine d'alliage !)
 local function getAvailableSpaceForResource(targetMachine: any, targetCfg: any, resId: string, reservedTotal: number, reservedForRes: number): number
 	if targetCfg.IsBelt then
 		local currentTotal = countBuffer(targetMachine.InputBuffer) + countBuffer(targetMachine.OutputBuffer) + reservedTotal
 		return math.max(0, 3 - currentTotal)
 	elseif targetMachine.Type == "DeliveryCenter" or targetMachine.Type == "Storage" then
 		local maxCap = (targetCfg.InputCapacity or 50) * (targetMachine.Level or 1)
-		local currentTotal = countBuffer(targetMachine.InputBuffer) + reservedTotal
+		local currentTotal = countBuffer(targetMachine.InputBuffer) + (targetMachine.Type == "Storage" and countBuffer(targetMachine.OutputBuffer) or 0) + reservedTotal
 		return math.max(0, maxCap - currentTotal)
 	elseif targetCfg.Recipes then
 		local maxReq = 0
@@ -54,7 +53,6 @@ local function getAvailableSpaceForResource(targetMachine: any, targetCfg: any, 
 				maxReq = req
 			end
 		end
-		-- Si la machine n'utilise pas cette ressource dans ses recettes, elle la refuse !
 		if maxReq <= 0 then
 			return 0
 		end
@@ -108,6 +106,8 @@ function ProductionService.SimulatePlot(player: Player, plot: any, data: any, dt
 	local energyProduced = baseEnergy
 	local energyConsumed = 0
 
+	data.UnlockedExtractors = data.UnlockedExtractors or {}
+
 	for _, m in ipairs(data.Machines) do
 		m.InputBuffer = m.InputBuffer or {}
 		m.OutputBuffer = m.OutputBuffer or {}
@@ -118,17 +118,27 @@ function ProductionService.SimulatePlot(player: Player, plot: any, data: any, dt
 		if cfg then
 			energyProduced = energyProduced + (cfg.EnergyProduction * (m.Level or 1))
 			energyConsumed = energyConsumed + cfg.EnergyConsumption
+			if cfg.Category == "Extractors" then
+				data.UnlockedExtractors[m.Type] = true
+			end
 		end
 	end
 
 	if os.time() < ProductionService.GlobalBlackoutUntil then
 		energyConsumed = math.ceil(energyConsumed * 1.5)
 	end
+
+	-- Synchronise l'Énergie sur la dalle pour l'affichage en direct dans le HUD Client
+	if plot.BasePart then
+		plot.BasePart:SetAttribute("EnergyProduced", energyProduced)
+		plot.BasePart:SetAttribute("EnergyConsumed", energyConsumed)
+	end
+
 	local hasEnoughEnergy = (energyProduced >= energyConsumed)
 	local prestigeMult = PlotAndPrestigeConfig.GetPrestigeMultiplier(data.Prestige or 0)
 
 	-- =========================================================================
-	-- 1. VENTE AU CENTRE DE LIVRAISON (+50% par niveau + Event ChaosBounty + Piratage)
+	-- 1. VENTE AU CENTRE DE LIVRAISON
 	-- =========================================================================
 	for _, m in ipairs(data.Machines) do
 		if m.Type == "DeliveryCenter" then
@@ -148,7 +158,6 @@ function ProductionService.SimulatePlot(player: Player, plot: any, data: any, dt
 			end
 
 			if totalEarned > 0 then
-				-- CORRECTION : Créditer le Chaos AVANT AddCredits pour que SyncToClient mette à jour le HUD !
 				if activeEventId == "ChaosBounty" then
 					data.ChaosTokens = (data.ChaosTokens or 0) + (3 * totalSoldItems)
 				end
@@ -176,7 +185,7 @@ function ProductionService.SimulatePlot(player: Player, plot: any, data: any, dt
 	end
 
 	-- =========================================================================
-	-- 2. TRANSFERT DES MINERAIS (Virages 90°, Trieur & Filtre de Recettes)
+	-- 2. TRANSFERT DES MINERAIS (Avec Répartiteur 50/50 Gauche/Droite)
 	-- =========================================================================
 	local transfersToExecute = {}
 	local reservedTotalOnTarget = {}
@@ -192,6 +201,14 @@ function ProductionService.SimulatePlot(player: Player, plot: any, data: any, dt
 			chaos = nil
 		end
 
+		local model = plot.MachinesFolder:FindFirstChild(m.Id)
+		if model and model.PrimaryPart then
+			local sparks = model.PrimaryPart:FindFirstChild("ChaosSparks")
+			if sparks and sparks:IsA("ParticleEmitter") then
+				sparks.Enabled = (chaos ~= nil)
+			end
+		end
+
 		local baseRot = m.Rotation or 0
 		if chaos and chaos.EffectType == "Inverter" then
 			baseRot = (baseRot + 180) % 360
@@ -201,57 +218,61 @@ function ProductionService.SimulatePlot(player: Player, plot: any, data: any, dt
 		local transferred = 0
 
 		for resId, qty in pairs(m.OutputBuffer) do
-			if qty > 0 and transferred < transferRate then
-				local outRot = baseRot
+			while qty > 0 and transferred < transferRate do
+				local candidateRots = {}
 				if cfg.TurnType == "Left" then
-					outRot = (baseRot - 90) % 360
+					candidateRots = { (baseRot - 90) % 360 }
 				elseif cfg.TurnType == "Right" then
-					outRot = (baseRot + 90) % 360
+					candidateRots = { (baseRot + 90) % 360 }
 				elseif cfg.TurnType == "Sorter" then
-					local itemInfo = ResourceConfig.Items[resId]
-					if itemInfo and itemInfo.IsRaw then
-						outRot = (baseRot + 90) % 360
-					else
-						-- Si une machine existe à gauche (-90°), le trieur envoie les produits raffinés à gauche, sinon tout droit
-						local lx, lz = getDirectionOffset((baseRot - 90) % 360)
-						if gridMap[tostring(m.GridX + lx) .. "_" .. tostring(m.GridZ + lz)] then
-							outRot = (baseRot - 90) % 360
+					-- Répartiteur 50/50 : alterne entre Gauche (-90°) et Droite (+90°) !
+					m.SplitToggle = not m.SplitToggle
+					local firstRot = m.SplitToggle and ((baseRot - 90) % 360) or ((baseRot + 90) % 360)
+					local secondRot = m.SplitToggle and ((baseRot + 90) % 360) or ((baseRot - 90) % 360)
+					candidateRots = { firstRot, secondRot, baseRot }
+				else
+					candidateRots = { baseRot }
+				end
+
+				local movedOne = false
+				for _, outRot in ipairs(candidateRots) do
+					local dx, dz = getDirectionOffset(outRot)
+					local targetMachine = gridMap[tostring(m.GridX + dx) .. "_" .. tostring(m.GridZ + dz)]
+					if targetMachine then
+						local targetCfg = MachineConfig.Get(targetMachine.Type)
+						if targetCfg then
+							local resKey = targetMachine.Id .. "_" .. resId
+							local spaceLeft = getAvailableSpaceForResource(
+								targetMachine,
+								targetCfg,
+								resId,
+								reservedTotalOnTarget[targetMachine.Id] or 0,
+								reservedPerResOnTarget[resKey] or 0
+							)
+
+							if spaceLeft > 0 then
+								qty = qty - 1
+								m.OutputBuffer[resId] = (qty > 0) and qty or nil
+								transferred = transferred + 1
+
+								reservedTotalOnTarget[targetMachine.Id] = (reservedTotalOnTarget[targetMachine.Id] or 0) + 1
+								reservedPerResOnTarget[resKey] = (reservedPerResOnTarget[resKey] or 0) + 1
+
+								table.insert(transfersToExecute, {
+									FromMachine = m,
+									ToMachine = targetMachine,
+									ResId = resId,
+									Amount = 1,
+								})
+								movedOne = true
+								break
+							end
 						end
 					end
 				end
 
-				local dx, dz = getDirectionOffset(outRot)
-				local targetMachine = gridMap[tostring(m.GridX + dx) .. "_" .. tostring(m.GridZ + dz)]
-
-				if targetMachine then
-					local targetCfg = MachineConfig.Get(targetMachine.Type)
-					if targetCfg then
-						local resKey = targetMachine.Id .. "_" .. resId
-						local spaceLeft = getAvailableSpaceForResource(
-							targetMachine,
-							targetCfg,
-							resId,
-							reservedTotalOnTarget[targetMachine.Id] or 0,
-							reservedPerResOnTarget[resKey] or 0
-						)
-
-						if spaceLeft > 0 then
-							local moveAmt = math.min(qty, transferRate - transferred, spaceLeft)
-							m.OutputBuffer[resId] = qty - moveAmt
-							if m.OutputBuffer[resId] <= 0 then m.OutputBuffer[resId] = nil end
-							transferred = transferred + moveAmt
-
-							reservedTotalOnTarget[targetMachine.Id] = (reservedTotalOnTarget[targetMachine.Id] or 0) + moveAmt
-							reservedPerResOnTarget[resKey] = (reservedPerResOnTarget[resKey] or 0) + moveAmt
-
-							table.insert(transfersToExecute, {
-								FromMachine = m,
-								ToMachine = targetMachine,
-								ResId = resId,
-								Amount = moveAmt,
-							})
-						end
-					end
+				if not movedOne then
+					break
 				end
 			end
 		end
@@ -268,7 +289,7 @@ function ProductionService.SimulatePlot(player: Player, plot: any, data: any, dt
 	end
 
 	-- =========================================================================
-	-- 3. AVANCÉE INTERNE DES TAPIS ET STOCKAGES
+	-- 3. AVANCÉE INTERNE DES TAPIS ET AFFICHAGE DU SILO DE STOCKAGE
 	-- =========================================================================
 	for _, m in ipairs(data.Machines) do
 		local cfg = MachineConfig.Get(m.Type)
@@ -283,6 +304,7 @@ function ProductionService.SimulatePlot(player: Player, plot: any, data: any, dt
 					if m.InputBuffer[resId] <= 0 then m.InputBuffer[resId] = nil end
 				end
 			end
+
 			if cfg.IsBelt then
 				local model = plot.MachinesFolder:FindFirstChild(m.Id)
 				if model then
@@ -290,12 +312,15 @@ function ProductionService.SimulatePlot(player: Player, plot: any, data: any, dt
 					if held == "" then held = getFirstItem(m.InputBuffer) end
 					model:SetAttribute("HeldItem", held)
 				end
+			elseif m.Type == "Storage" then
+				local currentStock = countBuffer(m.InputBuffer) + countBuffer(m.OutputBuffer)
+				updateBillboard(plot, m, "Stock : " .. tostring(currentStock) .. " / " .. tostring(maxCap), Color3.fromRGB(255, 215, 110))
 			end
 		end
 	end
 
 	-- =========================================================================
-	-- 4. FABRICATION (Mines, Raffineries, Alliages & Progression des Quêtes)
+	-- 4. FABRICATION (Mines, Raffineries, Alliages & Quêtes)
 	-- =========================================================================
 	local totalCraftedThisTick = 0
 
@@ -307,6 +332,14 @@ function ProductionService.SimulatePlot(player: Player, plot: any, data: any, dt
 		if chaos and os.time() >= chaos.ExpiresAt then
 			plot.ActiveChaosEffects[m.Id] = nil
 			chaos = nil
+		end
+
+		local model = plot.MachinesFolder:FindFirstChild(m.Id)
+		if model and model.PrimaryPart then
+			local sparks = model.PrimaryPart:FindFirstChild("ChaosSparks")
+			if sparks and sparks:IsA("ParticleEmitter") then
+				sparks.Enabled = (chaos ~= nil)
+			end
 		end
 
 		local speedMult = 1 + (((m.Level or 1) - 1) * 0.45)
@@ -386,7 +419,6 @@ function ProductionService.SimulatePlot(player: Player, plot: any, data: any, dt
 		end
 	end
 
-	-- CORRECTION QUÊTE : Avance le contrat CraftItems et synchronise immédiatement avec le client !
 	if totalCraftedThisTick > 0 then
 		PlayerDataService.AdvanceContract(player, "CraftItems", totalCraftedThisTick)
 		PlayerDataService.SyncToClient(player)

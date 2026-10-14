@@ -1,6 +1,7 @@
 -- StarterPlayer/StarterPlayerScripts/Controllers/BuildController.lua
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
+local SoundService = game:GetService("SoundService")
 local UserInputService = game:GetService("UserInputService")
 local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -24,10 +25,51 @@ local localPlayer = Players.LocalPlayer
 local camera = Workspace.CurrentCamera
 local remotes = ReplicatedStorage:WaitForChild("Remotes")
 
+local demolishHighlight: Highlight? = nil
+local isMouseDown = false
+local lastDemolishedId = ""
+
+local function playSfx(soundId: string, volume: number, pitch: number)
+	local s = Instance.new("Sound")
+	s.SoundId = soundId
+	s.Volume = volume
+	s.PlaybackSpeed = pitch
+	s.Parent = SoundService
+	s:Play()
+	task.delay(1.5, function()
+		s:Destroy()
+	end)
+end
+
 local function getMyPlotModel(): Model?
 	local idx = localPlayer:GetAttribute("PlotIndex")
 	local folder = Workspace:FindFirstChild("Plots")
 	return (idx and folder) and folder:FindFirstChild("Plot_" .. tostring(idx)) or nil
+end
+
+local function getHoveredMachineModel(): Model?
+	local plotModel = getMyPlotModel()
+	if not plotModel then return nil end
+	local machinesFolder = plotModel:FindFirstChild("Machines")
+	if not machinesFolder then return nil end
+
+	local mouseLoc = UserInputService:GetMouseLocation()
+	local ray = camera:ViewportPointToRay(mouseLoc.X, mouseLoc.Y)
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Include
+	params.FilterDescendantsInstances = { machinesFolder }
+
+	local hit = Workspace:Raycast(ray.Origin, ray.Direction * 300, params)
+	if hit and hit.Instance then
+		local current: Instance? = hit.Instance
+		while current and current.Parent ~= machinesFolder and current ~= Workspace do
+			current = current.Parent
+		end
+		if current and current:IsA("Model") and current:GetAttribute("MachineId") then
+			return current
+		end
+	end
+	return nil
 end
 
 function BuildController.StartPlaceMode(machineType: string)
@@ -37,7 +79,7 @@ function BuildController.StartPlaceMode(machineType: string)
 	BuildController.PreviewModel = ModelFactory.CreateMachineModel(machineType, true)
 	BuildController.PreviewModel.Parent = Workspace
 	if BuildController.OnModeChanged then
-		BuildController.OnModeChanged(true)
+		BuildController.OnModeChanged(true, "Place")
 	end
 end
 
@@ -50,13 +92,27 @@ function BuildController.StartMoveMode(machineId: string, machineType: string, c
 	BuildController.PreviewModel = ModelFactory.CreateMachineModel(machineType, true)
 	BuildController.PreviewModel.Parent = Workspace
 	if BuildController.OnModeChanged then
-		BuildController.OnModeChanged(true)
+		BuildController.OnModeChanged(true, "Move")
+	end
+end
+
+function BuildController.StartDemolishMode()
+	BuildController.CancelMode()
+	BuildController.Mode = "Demolish"
+	local hl = Instance.new("Highlight")
+	hl.FillColor = Color3.fromRGB(255, 55, 55)
+	hl.OutlineColor = Color3.fromRGB(255, 220, 220)
+	hl.FillTransparency = 0.35
+	hl.Parent = Workspace
+	demolishHighlight = hl
+	if BuildController.OnModeChanged then
+		BuildController.OnModeChanged(true, "Demolish")
 	end
 end
 
 function BuildController.RotatePreview()
 	BuildController.Rotation = (BuildController.Rotation + 90) % 360
-	-- Applique immédiatement la rotation visuelle à l'aperçu même si la souris survole un bouton UI
+	playSfx("rbxassetid://12221967", 0.35, 1.25)
 	if BuildController.PreviewModel and BuildController.PreviewModel.PrimaryPart then
 		local pos = BuildController.PreviewModel.PrimaryPart.Position
 		local cf = CFrame.new(pos) * CFrame.Angles(0, math.rad(-BuildController.Rotation), 0)
@@ -68,20 +124,41 @@ function BuildController.CancelMode()
 	BuildController.Mode = "None"
 	BuildController.SelectedMachineType = nil
 	BuildController.MovingMachineId = nil
+	isMouseDown = false
+	lastDemolishedId = ""
 	if BuildController.PreviewModel then
 		BuildController.PreviewModel:Destroy()
 		BuildController.PreviewModel = nil
 	end
+	if demolishHighlight then
+		demolishHighlight:Destroy()
+		demolishHighlight = nil
+	end
 	if BuildController.OnModeChanged then
-		BuildController.OnModeChanged(false)
+		BuildController.OnModeChanged(false, "None")
 	end
 end
 
 function BuildController.ConfirmAction()
+	if BuildController.Mode == "Demolish" then
+		local target = getHoveredMachineModel()
+		if target then
+			local mId = target:GetAttribute("MachineId")
+			if mId and mId ~= lastDemolishedId then
+				lastDemolishedId = mId
+				playSfx("rbxassetid://12221967", 0.45, 0.75)
+				remotes.SellMachine:FireServer(mId)
+			end
+		end
+		return
+	end
+
 	if not BuildController.IsValidPlacement then return end
 	if BuildController.Mode == "Place" and BuildController.SelectedMachineType then
+		playSfx("rbxassetid://12221967", 0.45, 1.05)
 		remotes.PlaceMachine:FireServer(BuildController.SelectedMachineType, BuildController.CurrentGridX, BuildController.CurrentGridZ, BuildController.Rotation)
 	elseif BuildController.Mode == "Move" and BuildController.MovingMachineId then
+		playSfx("rbxassetid://12221967", 0.45, 1.1)
 		remotes.MoveMachine:FireServer(BuildController.MovingMachineId, BuildController.CurrentGridX, BuildController.CurrentGridZ, BuildController.Rotation)
 		BuildController.CancelMode()
 	end
@@ -89,6 +166,17 @@ end
 
 function BuildController.Init()
 	RunService.RenderStepped:Connect(function()
+		if BuildController.Mode == "Demolish" then
+			local hovered = getHoveredMachineModel()
+			if demolishHighlight then
+				demolishHighlight.Adornee = hovered
+			end
+			if isMouseDown and hovered then
+				BuildController.ConfirmAction()
+			end
+			return
+		end
+
 		if BuildController.Mode == "None" or not BuildController.PreviewModel then return end
 
 		local plotModel = getMyPlotModel()
@@ -144,9 +232,8 @@ function BuildController.Init()
 	end)
 
 	UserInputService.InputBegan:Connect(function(input, gp)
-		-- La touche R et X/Escape fonctionnent toujours en mode construction
 		if input.KeyCode == Enum.KeyCode.R then
-			if BuildController.Mode ~= "None" then
+			if BuildController.Mode == "Place" or BuildController.Mode == "Move" then
 				BuildController.RotatePreview()
 			end
 			return
@@ -160,32 +247,23 @@ function BuildController.Init()
 		if gp then return end
 
 		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			isMouseDown = true
 			if BuildController.Mode ~= "None" then
 				BuildController.ConfirmAction()
 			else
-				local plotModel = getMyPlotModel()
-				if not plotModel then return end
-				local machinesFolder = plotModel:FindFirstChild("Machines")
-				if not machinesFolder then return end
-
-				local mouseLoc = UserInputService:GetMouseLocation()
-				local ray = camera:ViewportPointToRay(mouseLoc.X, mouseLoc.Y)
-				local params = RaycastParams.new()
-				params.FilterType = Enum.RaycastFilterType.Include
-				params.FilterDescendantsInstances = { machinesFolder }
-
-				local hit = Workspace:Raycast(ray.Origin, ray.Direction * 300, params)
-				if hit and hit.Instance then
-					-- Remonte jusqu'au Model enfant direct de machinesFolder (compatible sous-modèles FBX)
-					local current: Instance? = hit.Instance
-					while current and current.Parent ~= machinesFolder and current ~= Workspace do
-						current = current.Parent
-					end
-					if current and current:IsA("Model") and current:GetAttribute("MachineId") and BuildController.OnMachineClicked then
-						BuildController.OnMachineClicked(current)
-					end
+				local clickedModel = getHoveredMachineModel()
+				if clickedModel and BuildController.OnMachineClicked then
+					playSfx("rbxassetid://12221967", 0.3, 1.35)
+					BuildController.OnMachineClicked(clickedModel)
 				end
 			end
+		end
+	end)
+
+	UserInputService.InputEnded:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			isMouseDown = false
+			lastDemolishedId = ""
 		end
 	end)
 end
